@@ -46,6 +46,8 @@ dependencies:
   geocoding: ^3.0.0
   amplify_storage_s3: ^2.6.1
   aws_signature_v4: ^0.6.4
+  supabase_flutter: ^2.9.0
+  flutter_dotenv: ^5.2.1
 
 dev_dependencies:
   flutter_test:
@@ -73,6 +75,7 @@ flutter:
   # assets:
   assets:
      - assets/profile_pic.jpg
+     - .env
   #   - images/a_dot_ham.jpeg
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg

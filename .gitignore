@@ -13,6 +13,7 @@
 migrate_working_dir/
 android/app/src/main/res/values/strings.xml
 ios/Runner/GoogleMapsConfig.swift
+.env
 
 # IntelliJ related
 *.iml

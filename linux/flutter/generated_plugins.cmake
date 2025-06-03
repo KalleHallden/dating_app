@@ -5,6 +5,7 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   amplify_db_common
   file_selector_linux
+  gtk
   url_launcher_linux
 )
 

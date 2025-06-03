@@ -8,6 +8,7 @@
 
 #include <agora_rtc_engine/agora_rtc_engine_plugin.h>
 #include <amplify_db_common/amplify_db_common_plugin.h>
+#include <app_links/app_links_plugin_c_api.h>
 #include <connectivity_plus/connectivity_plus_windows_plugin.h>
 #include <file_selector_windows/file_selector_windows.h>
 #include <iris_method_channel/iris_method_channel_plugin_c_api.h>
@@ -19,6 +20,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("AgoraRtcEnginePlugin"));
   AmplifyDbCommonPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("AmplifyDbCommonPlugin"));
+  AppLinksPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("AppLinksPluginCApi"));
   ConnectivityPlusWindowsPluginRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("ConnectivityPlusWindowsPlugin"));
   FileSelectorWindowsRegisterWithRegistrar(

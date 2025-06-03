@@ -1,15 +1,13 @@
 import 'dart:io';
 import 'package:amplify_app/pages/call_page.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../providers/signup_provider.dart';
-import '../services/user_service.dart';
 import '../components/custom_progress_bar.dart';
 import '../components/signup_step1.dart';
 import '../components/signup_step2.dart';
 import '../components/signup_step3.dart';
-import 'package:amplify_flutter/amplify_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -20,7 +18,6 @@ class SignupScreen extends StatefulWidget {
 
 class _SignupScreenState extends State<SignupScreen> {
   final _pageController = PageController();
-  final _userService = UserService();
 
   @override
   void dispose() {
@@ -30,23 +27,16 @@ class _SignupScreenState extends State<SignupScreen> {
 
   Future<void> _handleSave(SignupProvider provider) async {
     try {
-      final currentUser = await Amplify.Auth.getCurrentUser();
-      await _userService.saveUser(
-        name: provider.userData['name'] as String,
-        age: provider.userData['age'] as int,
-        gender: provider.userData['gender'] as String,
-        genderPreference: provider.userData['gender_preference'] as String,
-        profilePicture: File(provider.userData['profile_picture'] as String),
-        location: provider.userData['location'] as dynamic,
-        aboutMe: provider.userData['aboutMe'] as String,
-      );
+      await provider.saveUser();
       Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => CallPage()),
-    );
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error saving profile: $e')));
-  }
+        context,
+        MaterialPageRoute(builder: (context) => const CallPage()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error saving profile: $e')),
+      );
+    }
   }
 
   @override
