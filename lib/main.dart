@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
+import 'package:uni_links/uni_links.dart'; // Import uni_links
 import 'pages/auth_screen.dart';
 import 'pages/signup_screen.dart';
 import 'pages/call_page.dart';
@@ -9,6 +10,7 @@ import 'services/supabase_client.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Ensure Supabase is initialized with the correct redirect URL and authFlowType
   await SupabaseClient.initialize();
   runApp(
     ChangeNotifierProvider<SignupProvider>(
@@ -26,46 +28,144 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  supabase.Session? _session; // Use a nullable Session object
+
   @override
   void initState() {
     super.initState();
-    // Listen to auth state changes
+    // Initialize session listener from Supabase
     SupabaseClient.instance.client.auth.onAuthStateChange.listen((data) {
       final event = data.event;
-      if (event == supabase.AuthChangeEvent.signedIn ||
-          event == supabase.AuthChangeEvent.signedOut ||
-          event == supabase.AuthChangeEvent.tokenRefreshed) {
-        setState(() {}); // Trigger rebuild to update initial screen
+      final session = data.session;
+
+      if (mounted) {
+        setState(() {
+          _session = session;
+        });
       }
+      print('Auth Event: $event, Session: ${session?.accessToken != null ? 'Present' : 'Null'}');
     });
+
+    // Also get initial session on startup
+    _getInitialSession();
+
+    // Set up deep link listener for Supabase
+    _setupDeepLinkListener();
+  }
+
+  Future<void> _getInitialSession() async {
+    final session = SupabaseClient.instance.client.auth.currentSession;
+    if (mounted) {
+      setState(() {
+        _session = session;
+      });
+    }
+  }
+
+  // Deep link listener function
+  void _setupDeepLinkListener() {
+    // Listen for incoming links when the app is already open
+    linkStream.listen((String? uri) {
+      _handleDeepLink(uri);
+    }, onError: (err) {
+      print('Error receiving deep link: $err');
+    });
+
+    // Get the initial link if the app was launched by a deep link
+    getInitialLink().then((String? uri) {
+      _handleDeepLink(uri);
+    });
+  }
+
+  // Function to process the deep link
+  Future<void> _handleDeepLink(String? uri) async {
+    if (uri != null) {
+      print('Received deep link: $uri');
+      try {
+        // Corrected type from AuthResponse to AuthSessionUrlResponse
+        final supabase.AuthSessionUrlResponse response = await SupabaseClient.instance.client.auth.getSessionFromUrl(
+          Uri.parse(uri),
+        );
+
+        if (response.session != null) {
+          print('Supabase session recovered from deep link!');
+          // The onAuthStateChange listener will pick this up and trigger a rebuild
+          // No need to manually navigate here, the _getInitialScreen will handle it
+        } else {
+          print('No session in deep link response.');
+          // Optionally show an error or redirect to AuthScreen if session couldn't be recovered
+        }
+      } catch (e) {
+        print('Error processing deep link with Supabase: $e');
+        // Optionally show an error to the user
+      }
+    }
   }
 
   Future<Widget> _getInitialScreen() async {
     final client = SupabaseClient.instance.client;
-    final session = client.auth.currentSession;
+    final session = _session; // Use the state variable
     final user = client.auth.currentUser;
 
+    // If a session exists but the user object is null (e.g., user deleted on server)
+    // or if the session is invalid, explicitly sign out to clear cache.
+    if (session != null && user == null) {
+      print('DEBUG: Session exists but user is null or invalid. Attempting signOut to clear cache.');
+      try {
+        await client.auth.signOut();
+        // After signOut, session and user should be null, which will correctly
+        // lead to the AuthScreen.
+        return const AuthScreen(initialMessage: 'Session cleared. Please sign in.');
+      } catch (e) {
+        print('Error during signOut: $e');
+        // Fallback to AuthScreen if signOut fails
+        return const AuthScreen(initialMessage: 'Error clearing session. Please sign in.');
+      }
+    }
+
+    // Case 1: No session or user found
     if (session == null || user == null) {
-      return const AuthScreen();
+      print('DEBUG: No session or user. Navigating to AuthScreen.');
+      return const AuthScreen(
+          initialMessage:
+              'Auth session missing! Please sign in or complete email confirmation.');
     }
 
+    // Case 2: User exists but email is not confirmed
+    if (user.emailConfirmedAt == null) {
+      print('DEBUG: User email not confirmed. Navigating to AuthScreen.');
+      return const AuthScreen(
+          initialMessage:
+              'Please check your email to confirm your account. Then sign in.');
+    }
+
+    // Case 3: User exists, email confirmed. Now check user profile data.
     final userId = user.id;
-    final userData = await client
-        .from('users')
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
+    try {
+      final userData = await client
+          .from('users')
+          .select()
+          .eq('user_id', userId)
+          .maybeSingle();
 
-    if (userData == null ||
-        userData['name'] == null ||
-        userData['age'] == null ||
-        userData['gender'] == null ||
-        userData['gender_preference'] == null ||
-        userData['location'] == null ||
-        userData['about_me'] == null) {
-      return const SignupScreen();
+      if (userData == null ||
+          userData['name'] == null ||
+          userData['age'] == null ||
+          userData['gender'] == null ||
+          userData['gender_preference'] == null ||
+          userData['location'] == null ||
+          userData['about_me'] == null) {
+        print('DEBUG: User profile incomplete. Navigating to SignupScreen.');
+        return const SignupScreen();
+      }
+    } catch (e) {
+      print('Error fetching user data: $e');
+      return const AuthScreen(
+          initialMessage: 'Failed to load user data. Please try again.');
     }
 
+    // Case 4: User exists, email confirmed, profile complete. Go to CallPage.
+    print('DEBUG: User profile complete. Navigating to CallPage.');
     return const CallPage();
   }
 
@@ -101,6 +201,7 @@ class _MyAppState extends State<MyApp> {
         ),
       ),
       home: FutureBuilder<Widget>(
+        // Depend on _session directly, which is updated by the listener
         future: _getInitialScreen(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -114,3 +215,4 @@ class _MyAppState extends State<MyApp> {
     );
   }
 }
+

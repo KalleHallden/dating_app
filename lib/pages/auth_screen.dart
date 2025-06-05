@@ -4,9 +4,11 @@ import 'package:provider/provider.dart';
 import '../providers/signup_provider.dart';
 import 'signup_screen.dart';
 import 'call_page.dart';
+import '../services/supabase_client.dart'; // Import SupabaseClient
 
 class AuthScreen extends StatefulWidget {
-  const AuthScreen({super.key});
+  final String? initialMessage; // Optional message to display
+  const AuthScreen({this.initialMessage, super.key});
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -19,6 +21,14 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.initialMessage != null) {
+      _errorMessage = widget.initialMessage;
+    }
+  }
+
+  @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
@@ -28,7 +38,7 @@ class _AuthScreenState extends State<AuthScreen> {
   Future<void> _signUp() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       setState(() {
-        _errorMessage = 'Please enter email and password';
+        _errorMessage = 'Please enter email and password.';
       });
       return;
     }
@@ -39,24 +49,129 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     try {
-      final provider = context.read<SignupProvider>();
-      await provider.signUpWithEmail(
+      final client = SupabaseClient.instance.client;
+      final response = await client.auth.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+        emailRedirectTo:
+            'io.supabase.flutterquickstart://login-callback/', // Important for deep linking
+      );
+
+      // If email confirmation is enabled, a session won't be immediately available.
+      // Supabase will send a verification email.
+      if (response.user != null && response.user!.emailConfirmedAt == null) {
+        setState(() {
+          _errorMessage =
+              'Registration successful! Please check your email to confirm your account.';
+        });
+        // Do NOT navigate immediately to SignupScreen or CallPage here.
+        // User needs to confirm email first.
+      } else if (response.user != null) {
+        // If email confirmation is NOT required, or if user is automatically signed in
+        // (e.g., via magic link if configured for it and the user is on the same device)
+        // or if there's an immediate session for some other reason.
+        // This part is less common for a direct email/password sign-up without confirmation.
+        // But if a session *is* immediately established, proceed.
+        if (mounted) {
+          // Check if user has completed profile data
+          final user = SupabaseClient.instance.client.auth.currentUser;
+          if (user != null) {
+            final userData = await client
+                .from('users')
+                .select()
+                .eq('user_id', user.id)
+                .maybeSingle();
+
+            if (userData == null ||
+                userData['name'] == null ||
+                userData['age'] == null ||
+                userData['gender'] == null ||
+                userData['gender_preference'] == null ||
+                userData['location'] == null ||
+                userData['about_me'] == null) {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const SignupScreen()),
+              );
+            } else {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const CallPage()),
+              );
+            }
+          }
+        }
+      } else {
+        // This case generally implies a problem if response.user is null but no AuthException was thrown.
+        throw Exception('Sign-up failed unexpectedly.');
+      }
+    } on supabase.AuthException catch (e) {
+      setState(() {
+        _errorMessage = e.message;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Error: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _signIn() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      setState(() {
+        _errorMessage = 'Please enter email and password.';
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final response = await client.auth.signInWithPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
-      // Verify session is set
-      final client = provider.supabaseClient;
-      final user = client.auth.currentUser;
-      if (user == null) {
-        throw Exception('Failed to set user session after sign-up');
+      if (response.user == null) {
+        throw Exception('Sign-in failed: No user found.');
       }
 
       if (mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const SignupScreen()),
-        );
+        // Check if user has completed profile data
+        final user = SupabaseClient.instance.client.auth.currentUser;
+        if (user != null) {
+          final userData = await client
+              .from('users')
+              .select()
+              .eq('user_id', user.id)
+              .maybeSingle();
+
+          if (userData == null ||
+              userData['name'] == null ||
+              userData['age'] == null ||
+              userData['gender'] == null ||
+              userData['gender_preference'] == null ||
+              userData['location'] == null ||
+              userData['about_me'] == null) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const SignupScreen()),
+            );
+          } else {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const CallPage()),
+            );
+          }
+        }
       }
     } on supabase.AuthException catch (e) {
       setState(() {
@@ -76,12 +191,21 @@ class _AuthScreenState extends State<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign Up')),
+      appBar: AppBar(title: const Text('Authentication')), // Changed title
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            if (_errorMessage != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                  textAlign: TextAlign.center,
+                ),
+              ),
             TextField(
               controller: _emailController,
               decoration: const InputDecoration(labelText: 'Email'),
@@ -94,28 +218,17 @@ class _AuthScreenState extends State<AuthScreen> {
               obscureText: true,
             ),
             const SizedBox(height: 16),
-            if (_errorMessage != null)
-              Text(
-                _errorMessage!,
-                style: const TextStyle(color: Colors.red),
-              ),
-            const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _isLoading ? null : _signUp,
               child: _isLoading
                   ? const CircularProgressIndicator()
                   : const Text('Sign Up'),
             ),
-            // For OAuth (e.g., Google), uncomment and configure Supabase:
-            // ElevatedButton(
-            //   onPressed: () async {
-            //     await SupabaseClient.instance.client.auth.signInWithOAuth(
-            //       supabase.Provider.google,
-            //       redirectTo: 'your-app://callback',
-            //     );
-            //   },
-            //   child: const Text('Sign Up with Google'),
-            // ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _isLoading ? null : _signIn,
+              child: const Text('Already have an account? Sign In'),
+            ),
           ],
         ),
       ),
