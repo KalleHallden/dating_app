@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
-import 'package:amplify_flutter/amplify_flutter.dart';
-import 'package:amplify_auth_cognito/amplify_auth_cognito.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import Supabase
 import 'package:amplify_app/pages/home_page.dart';
-import 'package:amplify_app/pages/join_call_page.dart';
+import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -15,11 +13,16 @@ class CallPage extends StatefulWidget {
 }
 
 class _CallPageState extends State<CallPage> {
-  WebSocketChannel? _channel;
-  bool _isConnecting = true;
+  // Supabase client instance
+  late final supabase.SupabaseClient _supabaseClient;
+  // Supabase Realtime channel for user-specific broadcasts
+  late final supabase.RealtimeChannel _userChannel;
+
+  bool _isConnecting = true; // State for initial Supabase connection/setup
   bool _isCallActive = false;
   bool _isLeavingCall = false;
-  String? _callId;
+  String? _currentSupabaseCallId; // The UUID from the Supabase 'calls' table
+  String? _agoraChannelId;      // The channel ID to be used by Agora (from matchmaker)
   String? _matchedUserName;
   String? _matchedUserProfilePicture;
   final bool _debug = true;
@@ -36,12 +39,13 @@ class _CallPageState extends State<CallPage> {
   @override
   void initState() {
     super.initState();
-    _connectWebSocket();
+    _supabaseClient = supabase.Supabase.instance.client;
+    _setupSupabaseIntegration(); // Initialize Supabase Realtime and matchmaking
   }
 
   @override
   void dispose() {
-    _channel?.sink.close();
+    _userChannel.unsubscribe(); // Unsubscribe from Realtime channel
     super.dispose();
   }
 
@@ -49,140 +53,210 @@ class _CallPageState extends State<CallPage> {
     if (_debug) print('${DateTime.now().toIso8601String()}: $msg');
   }
 
-  Future<void> _connectWebSocket() async {
-    safePrint('→ Initializing WebSocket');
-    try {
-      _channel?.sink.close();
-      _channel = WebSocketChannel.connect(
-        Uri.parse('wss://gxwn07m3ma.execute-api.eu-north-1.amazonaws.com/prod'),
-      );
-      safePrint('→ WebSocket connected');
+  /// Sets up Supabase Realtime listener and initiates the initial state clear and matchmaking join.
+  Future<void> _setupSupabaseIntegration() async {
+    safePrint('→ Initializing Supabase Integration');
 
-      // clear state shortly after connect
-      Future.delayed(const Duration(milliseconds: 200), _sendClearState);
-
-      _channel!.stream.listen(
-        _onMessage,
-        onError: (e) {
-          safePrint('WebSocket error: $e');
-          _reconnect();
-        },
-        onDone: () {
-          safePrint('WebSocket closed');
-          _reconnect();
-        },
-      );
-    } catch (e) {
-      safePrint('Error connecting WebSocket: $e');
-      _reconnect();
+    final currentUser = _supabaseClient.auth.currentUser;
+    if (currentUser == null) {
+      safePrint('Error: Supabase user not authenticated. Cannot set up Realtime.');
+      // Handle scenario where user is not logged in, e.g., navigate back to AuthScreen
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()), // Or AuthScreen
+          (_) => false,
+        );
+      }
+      return;
     }
+
+    // Subscribe to a private channel for the current user to receive messages
+    // The channel name must match what your Edge Functions broadcast to: 'user:<userId>'
+    _userChannel = _supabaseClient.channel('user:${currentUser.id}');
+    // Use onBroadcast with a callback that receives a Map<String, dynamic>
+    _userChannel.onBroadcast(
+      event: '*', // Listen to all broadcast events
+      callback: (payload) => _onSupabaseRealtimeMessage(payload),
+    );
+    _userChannel.subscribe(); // Don't forget to call subscribe on the channel
+    safePrint('Supabase Realtime: Subscribed to user channel: user:${currentUser.id}');
+
+    // Clear state and wait for completion before proceeding
+    safePrint('Attempting to send clearState request from Flutter...');
+    await _sendClearState();
+    safePrint('clearState request sent from Flutter. Waiting for Realtime confirmation...');
   }
 
-  void _reconnect() {
-    _channel = null;
-    setState(() => _isConnecting = true);
-    Future.delayed(const Duration(seconds: 5), _connectWebSocket);
-  }
+  /// Handles incoming broadcast messages from Supabase Realtime.
+  Future<void> _onSupabaseRealtimeMessage(Map<String, dynamic> payload) async {
+    safePrint('← Received raw Realtime payload: $payload'); // Access payload data
+    // Extract the nested payload containing the action
+    final Map<String, dynamic> message = payload['payload'] as Map<String, dynamic>;
 
-  Future<void> _send(Map<String, dynamic> msg) async {
-    final payload = jsonEncode(msg);
-    safePrint('→ Sending: $payload');
-    _channel?.sink.add(payload);
-  }
+    safePrint('← Parsed Realtime message: $message');
 
-  void _sendClearState() async {
-    final user = await Amplify.Auth.getCurrentUser();
-    await _send({
-      'action': 'clearState',
-      'userId': user.userId,
-    });
-  }
-
-  Future<void> _onMessage(dynamic raw) async {
-    safePrint('← Received raw: $raw');
-    final data = jsonDecode(raw as String) as Map<String, dynamic>;
-    safePrint('← Parsed: $data');
-
-    switch (data['action']) {
+    switch (message['action']) {
       case 'stateCleared':
-        setState(() => _isConnecting = false);
-        _joinMatchmaking();
+        safePrint('Supabase Realtime: State cleared confirmation received.');
+        if (mounted) {
+          setState(() => _isConnecting = false);
+          safePrint('Calling _joinMatchmaking() after stateCleared confirmation.');
+          _joinMatchmaking(); // Proceed to join matchmaking after state is cleared
+        }
         return;
+
       case 'leftCall':
+        safePrint('Supabase Realtime: Left call confirmation received.');
         if (!mounted) return;
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
-          _callId = null;
+          _currentSupabaseCallId = null;
+          _agoraChannelId = null;
           _matchedUserName = null;
           _matchedUserProfilePicture = null;
         });
+        // Navigate back to HomePage after successfully leaving the call
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
           (_) => false,
         );
         return;
-      default:
-        if (data.containsKey('callId')) {
-          final other = data['otherUser'] as Map<String, dynamic>;
+
+      case 'callInitiated':
+        safePrint('Supabase Realtime: Call initiated! Details: $message');
+        if (!mounted) return;
+
+        // Extract call details from the payload
+        _currentSupabaseCallId = message['callId'] as String;
+        _agoraChannelId = message['channelId'] as String; // This is the Agora channel ID
+        final String partnerId = message['partnerId'] as String;
+
+        // Fetch partner's profile information from the 'users' table
+        try {
+          final partnerData = await _supabaseClient
+              .from('users')
+              .select('name, profile_picture_url') // Select necessary fields
+              .eq('user_id', partnerId)
+              .maybeSingle(); // Use maybeSingle as partner might not exist or data is incomplete
+
+          if (partnerData != null) {
+            setState(() {
+              _matchedUserName = partnerData['name'] as String?;
+              _matchedUserProfilePicture = partnerData['profile_picture_url'] as String?;
+              _isCallActive = true; // Mark call as active
+            });
+            safePrint('Matched with: $_matchedUserName (ID: $partnerId)');
+          } else {
+            safePrint('Warning: Partner data not found for ID: $partnerId');
+            // Handle case where partner data is missing or incomplete
+            setState(() {
+              _matchedUserName = 'Unknown User';
+              _matchedUserProfilePicture = null;
+              _isCallActive = true; // Still activate call, but with limited info
+            });
+          }
+        } catch (e) {
+          safePrint('Error fetching partner data: $e');
           setState(() {
-            _callId = data['callId'] as String;
-            _matchedUserName = other['name'] as String;
-            _matchedUserProfilePicture = other['profilePictureUrl'] as String?;
+            _matchedUserName = 'Error User';
+            _matchedUserProfilePicture = null;
             _isCallActive = true;
           });
-          return;
         }
+        return;
+
+      default:
+        safePrint('Supabase Realtime: Unknown action received: ${message['action']}');
+        break;
     }
   }
 
-  void _joinMatchmaking() {
-    if (_isCallActive || _isLeavingCall) return;
-    setState(() => _callId = null);
-    Future.delayed(const Duration(seconds: 1), () async {
-      final user = await Amplify.Auth.getCurrentUser();
-      final timestamp = DateTime.now()
-          .toUtc()
-          .toIso8601String()
-          .replaceAll(RegExp(r'\.\d{6}Z\$'), 'Z');
-      await _send({
-        'action': 'joinMatchmaking',
-        'userId': user.userId,
-        'timestamp': timestamp,
-      });
-    });
-  }
-
-  Future<void> _leaveCall() async {
-    if (_callId == null) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
-      );
+  /// Sends a request to the `user_state_handler` Edge Function.
+  Future<void> _sendSupabaseFunctionAction(String action, {Map<String, dynamic>? data}) async {
+    final currentUser = _supabaseClient.auth.currentUser;
+    if (currentUser == null) {
+      safePrint('Error: User not authenticated. Cannot send action: $action');
       return;
     }
 
-    setState(() => _isLeavingCall = true);
-    await Future.delayed(const Duration(seconds: 1));
+    final Map<String, dynamic> body = {
+      'action': action,
+      'userId': currentUser.id, // Supabase Auth user ID (UUID)
+      ...?data, // Include any additional data provided
+    };
 
-    final user = await Amplify.Auth.getCurrentUser();
-    await _send({
-      'action': 'leaveCall',
-      'userId': user.userId,
-      'callId': _callId,
-    });
+    try {
+      safePrint('→ Invoking Edge Function: $action with body: $body');
+      final response = await _supabaseClient.functions.invoke(
+        'user_state_handler', // The name of your primary Edge Function
+        body: body,
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      );
+      safePrint('Edge Function "$action" response status: ${response.status}');
+      safePrint('Edge Function "$action" response data: ${response.data}');
 
-    Future.delayed(const Duration(seconds: 5), () {
-      if (mounted && _isLeavingCall) {
+      if (response.status != 200) {
+        safePrint('Error invoking Edge Function "$action": ${response.data}');
+        // You might want to show a Snackbar or dialog to the user
+      }
+    } catch (e) {
+      safePrint('Exception while invoking Edge Function "$action": $e');
+      // Handle network errors or other exceptions
+    }
+  }
+
+  /// Clears the user's state on the backend.
+  Future<void> _sendClearState() async {
+    await _sendSupabaseFunctionAction('clearState');
+  }
+
+  /// Initiates matchmaking by calling the Edge Function.
+  void _joinMatchmaking() {
+    if (_isCallActive || _isLeavingCall) return;
+    setState(() => _currentSupabaseCallId = null); // Clear any previous call ID
+
+    safePrint('Attempting to send joinMatchmaking request from Flutter...');
+    _sendSupabaseFunctionAction(
+      'joinMatchmaking',
+      data: {
+        'timestamp': DateTime.now().toIso8601String(),
+        'connectionId': _supabaseClient.auth.currentUser!.id,
+      },
+    );
+    safePrint('joinMatchmaking request sent from Flutter.');
+  }
+
+  /// Requests the backend to end the current call.
+  Future<void> _leaveCall() async {
+    if (_currentSupabaseCallId == null) {
+      // If no call ID, just navigate back to home
+      if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
           (_) => false,
         );
       }
-    });
+      return;
+    }
+
+    setState(() => _isLeavingCall = true);
+
+    await _sendSupabaseFunctionAction(
+      'leaveCall',
+      data: {
+        'callId': _currentSupabaseCallId,
+      },
+    );
+
+    // The Realtime listener will handle setting _isCallActive = false and navigation
+    // once the 'leftCall' message is received from the backend.
+    // Removed the delayed navigation as Realtime provides immediate feedback.
   }
 
   void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
@@ -190,18 +264,18 @@ class _CallPageState extends State<CallPage> {
 
   @override
   Widget build(BuildContext context) {
-    // Connecting
+    // Connecting / Initializing Supabase
     if (_isConnecting) {
-      return Scaffold(
+      return const Scaffold(
         body: Center(
           child: CircularProgressIndicator(),
         ),
       );
     }
 
-    // Leaving
+    // Leaving Call
     if (_isLeavingCall) {
-      return Scaffold(
+      return const Scaffold(
         body: Center(
           child: Text(
             'Leaving call...',
@@ -210,7 +284,8 @@ class _CallPageState extends State<CallPage> {
         ),
       );
     }
-        // Wu Wei quote screen
+
+    // Searching for match / Wu Wei quote screen
     if (!_isCallActive) {
       return Scaffold(
         appBar: AppBar(
@@ -226,7 +301,7 @@ class _CallPageState extends State<CallPage> {
         ),
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.only(left:24.0, right: 24.0, bottom:24.0),
+            padding: const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 24.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -236,7 +311,7 @@ class _CallPageState extends State<CallPage> {
                 const SizedBox(height: 24),
                 SingleChildScrollView(
                   child: Text(
-                    _callId == null
+                    _currentSupabaseCallId == null // Checks if we failed to get a call ID after searching
                         ? '''Wu wei (無為)
 Means “effortless action”. The art of not forcing anything. You are who you are and they will be who they will be. You like what you like and they will like what they will like. You might not be what they like and they might not be what you like. Some people like cats, some people like dogs. You can’t be a cat and a dog. You can’t be red and blue.
 
@@ -265,7 +340,7 @@ Don’t try to be someone else's match, try to find yours.'''
               child: Image.network(
                 _matchedUserProfilePicture!,
                 fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => Center(
+                errorBuilder: (_, __, ___) => const Center(
                   child: Text(
                     'Image load error',
                     style: TextStyle(color: Colors.white),
@@ -293,7 +368,7 @@ Don’t try to be someone else's match, try to find yours.'''
             left: 20,
             child: Text(
               _matchedUserName ?? '',
-              style: TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+              style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
           Positioned(
@@ -304,12 +379,13 @@ Don’t try to be someone else's match, try to find yours.'''
               style: ButtonStyle(
                 backgroundColor: MaterialStateProperty.all(Colors.red),
               ),
-              child: Text('Leave', style: TextStyle(color: Colors.white)),
+              child: const Text('Leave', style: TextStyle(color: Colors.white)),
             ),
           ),
+          // Pass the Agora channel ID to JoinChannelAudio
           Align(
             alignment: Alignment.center,
-            child: JoinChannelAudio(channelID: _callId!),
+            child: JoinChannelAudio(channelID: _agoraChannelId!),
           ),
           Align(
             alignment: Alignment.bottomCenter,
@@ -324,20 +400,20 @@ Don’t try to be someone else's match, try to find yours.'''
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('Would you rather', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                      const Text('Would you rather', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          IconButton(icon: Icon(Icons.arrow_left), onPressed: _prevOption),
+                          IconButton(icon: const Icon(Icons.arrow_left), onPressed: _prevOption),
                           Expanded(
                             child: Text(
                               options[currentIndex],
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 16),
+                              style: const TextStyle(fontSize: 16),
                             ),
                           ),
-                          IconButton(icon: Icon(Icons.arrow_right), onPressed: _nextOption),
+                          IconButton(icon: const Icon(Icons.arrow_right), onPressed: _nextOption),
                         ],
                       ),
                     ],
@@ -351,4 +427,3 @@ Don’t try to be someone else's match, try to find yours.'''
     );
   }
 }
-

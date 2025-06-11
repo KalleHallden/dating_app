@@ -1,3 +1,4 @@
+import 'package:amplify_app/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
@@ -166,7 +167,7 @@ class _MyAppState extends State<MyApp> {
 
     // Case 4: User exists, email confirmed, profile complete. Go to CallPage.
     print('DEBUG: User profile complete. Navigating to CallPage.');
-    return const CallPage();
+    return const HomePage();
   }
 
   @override

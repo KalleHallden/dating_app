@@ -15,6 +15,8 @@ class _HomePageState extends State<HomePage> {
 	
   int _selectedIndex = 0;
   static final List<Widget> _pages = <Widget>[
+	  TalkPage(),
+	  ProfilePage(),
   ];
 
   void _onItemTapped(int index) {
