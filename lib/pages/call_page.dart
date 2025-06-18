@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import Supabase
 import 'package:amplify_app/pages/home_page.dart';
 import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
+import '../services/call_service.dart'; // Add this import
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -17,6 +18,9 @@ class _CallPageState extends State<CallPage> {
   late final supabase.SupabaseClient _supabaseClient;
   // Supabase Realtime channel for user-specific broadcasts
   late final supabase.RealtimeChannel _userChannel;
+  
+  // Add CallService instance
+  final CallService _callService = CallService();
 
   bool _isConnecting = true; // State for initial Supabase connection/setup
   bool _isCallActive = false;
@@ -133,6 +137,7 @@ class _CallPageState extends State<CallPage> {
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String; // This is the Agora channel ID
         final String partnerId = message['partnerId'] as String;
+        final String role = message['role'] as String? ?? 'unknown';
 
         // Fetch partner's profile information from the 'users' table
         try {
@@ -148,7 +153,12 @@ class _CallPageState extends State<CallPage> {
               _matchedUserProfilePicture = partnerData['profile_picture_url'] as String?;
               _isCallActive = true; // Mark call as active
             });
-            safePrint('Matched with: $_matchedUserName (ID: $partnerId)');
+            safePrint('Matched with: $_matchedUserName (ID: $partnerId) as $role');
+            
+            // Update call status to active if both users have joined
+            if (role == 'called') {
+              await _callService.markCallAsActive(_currentSupabaseCallId!);
+            }
           } else {
             safePrint('Warning: Partner data not found for ID: $partnerId');
             // Handle case where partner data is missing or incomplete
@@ -166,6 +176,22 @@ class _CallPageState extends State<CallPage> {
             _isCallActive = true;
           });
         }
+        return;
+
+      case 'callEnded':
+        safePrint('Supabase Realtime: Call ended by other party.');
+        if (!mounted) return;
+        setState(() {
+          _isCallActive = false;
+          _currentSupabaseCallId = null;
+          _agoraChannelId = null;
+        });
+        // Navigate back to HomePage
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+          (_) => false,
+        );
         return;
 
       default:
@@ -247,6 +273,9 @@ class _CallPageState extends State<CallPage> {
 
     setState(() => _isLeavingCall = true);
 
+    // Update call status in database
+    await _callService.endCall(_currentSupabaseCallId!);
+
     await _sendSupabaseFunctionAction(
       'leaveCall',
       data: {
@@ -256,7 +285,6 @@ class _CallPageState extends State<CallPage> {
 
     // The Realtime listener will handle setting _isCallActive = false and navigation
     // once the 'leftCall' message is received from the backend.
-    // Removed the delayed navigation as Realtime provides immediate feedback.
   }
 
   void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
@@ -313,12 +341,12 @@ class _CallPageState extends State<CallPage> {
                   child: Text(
                     _currentSupabaseCallId == null // Checks if we failed to get a call ID after searching
                         ? '''Wu wei (無為)
-Means “effortless action”. The art of not forcing anything. You are who you are and they will be who they will be. You like what you like and they will like what they will like. You might not be what they like and they might not be what you like. Some people like cats, some people like dogs. You can’t be a cat and a dog. You can’t be red and blue.
+Means "effortless action". The art of not forcing anything. You are who you are and they will be who they will be. You like what you like and they will like what they will like. You might not be what they like and they might not be what you like. Some people like cats, some people like dogs. You can't be a cat and a dog. You can't be red and blue.
 
 Look for the path of least resistance. The conversation of least resistance.
-With the right person, it’s easier, feels more natural, less forced.
+With the right person, it's easier, feels more natural, less forced.
 
-Don’t try to be someone else's match, try to find yours.'''
+Don't try to be someone else's match, try to find yours.'''
                         : 'Failed to join call. Try again.',
                     style: const TextStyle(fontSize: 12),
                     textAlign: TextAlign.center,
@@ -382,10 +410,15 @@ Don’t try to be someone else's match, try to find yours.'''
               child: const Text('Leave', style: TextStyle(color: Colors.white)),
             ),
           ),
-          // Pass the Agora channel ID to JoinChannelAudio
+          // Pass the Agora channel ID and call ID to JoinChannelAudio
           Align(
             alignment: Alignment.center,
-            child: JoinChannelAudio(channelID: _agoraChannelId!),
+            child: _agoraChannelId != null 
+              ? JoinChannelAudio(
+                  channelID: _agoraChannelId!,
+                  callId: _currentSupabaseCallId,
+                )
+              : const CircularProgressIndicator(color: Colors.white),
           ),
           Align(
             alignment: Alignment.bottomCenter,

@@ -1,35 +1,29 @@
-import 'package:amplify_app/components/config_override.dart';
-import 'dart:math';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
-/// Get your own App ID at https://dashboard.agora.io/
+/// Get App ID from environment variables
+/// This is loaded from .env file
 String get appId {
-  // You can directly edit this code to return the appId you want.
-  return ExampleConfigOverride().getAppId();
+  return dotenv.env['AGORA_APP_ID'] ?? '';
 }
 
-/// Please refer to https://docs.agora.io/en/Agora%20Platform/token
+/// Placeholder token - actual tokens come from server
+/// This should never be used in production
 String get token {
-  // You can directly edit this code to return the token you want.
-  return ExampleConfigOverride().getToken();
+  return '';
 }
 
-/// Your channel ID
+/// Placeholder channel ID - actual channel IDs come from matchmaking
 String get channelId {
-  // You can directly edit this code to return the channel ID you want.
-  return ExampleConfigOverride().getChannelId();
+  return '';
 }
-Random random = Random();
-/// Your int user ID
-int uid = random.nextInt(100);
 
-/// Your user ID for the screen sharing
+/// Screen sharing UID if needed
 const int screenSharingUid = 10;
 
-/// Your string user ID
-String stringUid = uid.toString();
+/// Default role for users
+const String defaultRole = 'publisher';
 
+/// Music Center App ID if needed (optional)
 String get musicCenterAppId {
-  // Allow pass a `token` as an environment variable with name `TEST_TOKEN` by using --dart-define
-  return const String.fromEnvironment('MUSIC_CENTER_APPID',
-      defaultValue: '<MUSIC_CENTER_APPID>');
+  return dotenv.env['MUSIC_CENTER_APPID'] ?? '';
 }

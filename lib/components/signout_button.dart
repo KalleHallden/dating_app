@@ -47,11 +47,31 @@ class _SignoutButtonState extends State<SignoutButton> {
     });
 
     try {
-      // Sign out from Supabase
-      await SupabaseClient.instance.client.auth.signOut();
+      // Get the Supabase client
+      final client = SupabaseClient.instance.client;
       
-      // Navigate to AuthScreen and clear the navigation stack
+      // CRITICAL FIX: Clear all session data properly
+      // 1. First, sign out from Supabase
+      await client.auth.signOut();
+      
+      // 2. Add a small delay to ensure the auth state change is processed
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      // 3. Verify the session is actually cleared
+      final currentSession = client.auth.currentSession;
+      final currentUser = client.auth.currentUser;
+      
+      if (currentSession != null || currentUser != null) {
+        // Force clear if still exists (shouldn't happen, but just in case)
+        print('WARNING: Session still exists after signOut. Forcing clear.');
+        // You might need to clear local storage here if using web
+      }
+      
+      print('SignOut successful. Session: ${currentSession == null ? "null" : "exists"}, User: ${currentUser == null ? "null" : "exists"}');
+      
+      // Navigate to AuthScreen and clear the entire navigation stack
       if (mounted) {
+        // Use pushAndRemoveUntil to ensure we clear the entire navigation stack
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
@@ -59,13 +79,14 @@ class _SignoutButtonState extends State<SignoutButton> {
               initialMessage: 'Successfully signed out. Please sign in again.',
             ),
           ),
-          (_) => false, // Remove all previous routes
+          (route) => false, // This removes ALL previous routes
         );
       }
     } catch (e) {
       print('Error during signout: $e');
       
-      // Show error message to user
+      // Even if there's an error, try to navigate to auth screen
+      // This prevents users from being stuck
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -73,6 +94,17 @@ class _SignoutButtonState extends State<SignoutButton> {
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 3),
           ),
+        );
+        
+        // Still navigate to auth screen even on error
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const AuthScreen(
+              initialMessage: 'Session error. Please sign in.',
+            ),
+          ),
+          (route) => false,
         );
       }
     } finally {

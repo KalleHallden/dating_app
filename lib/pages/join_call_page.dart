@@ -1,179 +1,214 @@
-import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:amplify_app/components/log_sink.dart';
-import 'package:amplify_app/config/agora.config.dart';
-import 'package:amplify_app/pages/waveform.dart';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'dart:io' as io;
+import '../services/agora_service.dart';
+import '../services/supabase_client.dart';
+import 'waveform.dart';
 
 class JoinChannelAudio extends StatefulWidget {
-	final String channelID;
-  const JoinChannelAudio({Key? key, required this.channelID}) : super(key: key);
+  final String channelID;
+  final String? callId; // Add this to track the database call ID
+  
+  const JoinChannelAudio({
+    Key? key, 
+    required this.channelID,
+    this.callId,
+  }) : super(key: key);
 
   @override
   _JoinChannelAudioState createState() => _JoinChannelAudioState();
 }
 
 class _JoinChannelAudioState extends State<JoinChannelAudio> {
-  late final RtcEngine _engine;
-  late String channelID; // Replace with your actual channel ID
+  final AgoraService _agoraService = AgoraService();
   bool isJoined = false;
-  late RtcEngineEventHandler _rtcEngineEventHandler;
-  late double volume; 
-  List<AudioVolumeInfo> volumeInfo = [];
+  double volume = 0.0;
   bool shouldUpdate = true;
+  double _maxVolumeSeen = 1.0;
+  bool _isInitializing = true;
+  String? _errorMessage;
+  bool _isDisposed = false;
 
   @override
   void initState() {
-	  volume = 0.0;
-	  channelID = widget.channelID;
     super.initState();
     _initEngine();
   }
 
   @override
   void dispose() {
-    super.dispose();
+    _isDisposed = true;
     _dispose();
+    super.dispose();
   }
 
   Future<void> _dispose() async {
-    await _engine.leaveChannel();
-    await _engine.release();
+    await _agoraService.leaveChannel();
+    await _agoraService.dispose();
   }
 
   Future<void> _initEngine() async {
-    _engine = createAgoraRtcEngine();
-    await _engine.initialize(RtcEngineContext(appId: appId)); // Replace with your actual appId
-        _rtcEngineEventHandler = RtcEngineEventHandler(
-      onError: (ErrorCodeType err, String msg) {
-	      print(err);
-	      print(msg);
-        logSink.log('[onError] err: $err, msg: $msg');
-      },
-      onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-	      print("Joined channel");
-        logSink.log(
-            '[onJoinChannelSuccess] connection: ${connection.toJson()} elapsed: $elapsed');
+    try {
+      setState(() {
+        _isInitializing = true;
+        _errorMessage = null;
+      });
+
+      // Set up callbacks
+      _agoraService.onUserSpeaking = (uid, isSpeaking) {
+        if (!_isDisposed) {
+          if (isSpeaking) {
+            _updateWaveform(0.7); // Show activity when someone is speaking
+          } else {
+            _updateWaveform(0.0);
+          }
+        }
+      };
+
+      _agoraService.onError = (message) {
+        if (!_isDisposed && mounted) {
+          setState(() {
+            _errorMessage = message;
+          });
+        }
+      };
+
+      _agoraService.onUserJoined = (uid) {
+        print('User joined with uid: $uid');
+      };
+
+      _agoraService.onCallEnded = () {
+        if (!_isDisposed && mounted) {
+          setState(() {
+            isJoined = false;
+          });
+        }
+      };
+
+      // Initialize the service
+      await _agoraService.initialize();
+
+      // Get current user for UID generation
+      final currentUser = SupabaseClient.instance.client.auth.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Generate a consistent UID from user ID
+      // Use hashCode and ensure it fits in 32-bit integer range
+      final uid = currentUser.id.hashCode.abs() % 2147483647;
+
+      // Join the channel with the call ID if provided
+      await _agoraService.joinChannel(
+        channelName: widget.channelID,
+        uid: uid,
+        callId: widget.callId,
+      );
+
+      if (!_isDisposed && mounted) {
         setState(() {
           isJoined = true;
+          _isInitializing = false;
         });
-      },
-      onRemoteAudioStateChanged: (RtcConnection connection, int remoteUid,
-          RemoteAudioState state, RemoteAudioStateReason reason, int elapsed) {
-        logSink.log(
-            '[onRemoteAudioStateChanged] connection: ${connection.toJson()} remoteUid: $remoteUid state: $state reason: $reason elapsed: $elapsed');
-      },
-      onLeaveChannel: (RtcConnection connection, RtcStats stats) {
-        logSink.log(
-            '[onLeaveChannel] connection: ${connection.toJson()} stats: ${stats.toJson()}');
+      }
+    } catch (e) {
+      print('Error initializing audio: $e');
+      if (!_isDisposed && mounted) {
         setState(() {
-          isJoined = false;
+          _errorMessage = 'Failed to connect to audio: $e';
+          _isInitializing = false;
         });
-      },
-      onAudioRoutingChanged: (routing) {
-        logSink.log('[onAudioRoutingChanged] routing: $routing');
-      },
-      
-onAudioVolumeIndication: (RtcConnection connection, List<AudioVolumeInfo> volumeInfos, int speakerId, int elapsed) {
-  for (var volumeInfo in volumeInfos) {
-    volume += volumeInfo.volume!; // Sum the volumes of all speakers
+      }
+    }
   }
 
-    _updateWaveform(volume / 10); // Update the waveform based on volume
-},
-      
-    );
-
-    _engine.registerEventHandler(_rtcEngineEventHandler);
-    await _engine.enableAudioVolumeIndication(interval: 200, smooth: 3, reportVad: true);
-
-    await _engine.enableAudio();
-    await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-    await _engine.setChannelProfile(ChannelProfileType.channelProfileCommunication);
-    await _engine.setAudioProfile(
-      profile: AudioProfileType.audioProfileDefault,
-      scenario: AudioScenarioType.audioScenarioGameStreaming,
-    );
-	await _joinChannel();
-  }
-
-double _maxVolumeSeen = 1.0;
- void _updateWaveform(double newVolume) {
-	 if (newVolume > _maxVolumeSeen) {
+  void _updateWaveform(double newVolume) {
+    if (newVolume > _maxVolumeSeen) {
       _maxVolumeSeen = newVolume;
     }
-	    if (shouldUpdate) {
-		    shouldUpdate = !shouldUpdate;
-
-    setState(() {
-	    if (_maxVolumeSeen == 0) volume = 0; // avoid divide by zero
-    volume = (newVolume / _maxVolumeSeen).clamp(0.0, 1.0);
-    });
-	    }
-  }
-
-  Future<void> _joinChannel() async {
-    // Check if the platform is Android
-	await Permission.microphone.request();
-
-    await _engine.joinChannel(
-      token: token,  // Replace with your actual token
-      channelId: channelId,
-      uid: uid,  // Replace with your actual user ID
-      options: ChannelMediaOptions(
-        channelProfile: ChannelProfileType.channelProfileCommunication,
-        clientRoleType: ClientRoleType.clientRoleBroadcaster,
-      ),
-    );
-
-    if (mounted) {
-      setState(() {
-        isJoined = true;
-      });
-    }
-  }
-
-  Future<void> _leaveChannel() async {
-    await _engine.leaveChannel();
-    if (mounted) {
-      setState(() {
-        isJoined = false;
-      });
+    
+    if (shouldUpdate && !_isDisposed) {
+      shouldUpdate = !shouldUpdate;
+      if (mounted) {
+        setState(() {
+          if (_maxVolumeSeen == 0) volume = 0; // avoid divide by zero
+          volume = (newVolume / _maxVolumeSeen).clamp(0.0, 1.0);
+        });
+      }
     }
   }
 
   @override
   Widget build(BuildContext context) {
-	  shouldUpdate = true;
-	  return Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-              // Replace with your waveform widget
-	  Container(
-        // Make it a circle, so width == height
-        width: 200,
-        height: 200,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          shape: BoxShape.circle,
-          // Drop shadow
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 8.0,
-              offset: Offset(2, 4), // Position of the shadow
+    shouldUpdate = true;
+
+    if (_isInitializing) {
+      return const Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          CircularProgressIndicator(color: Colors.white),
+          SizedBox(height: 16),
+          Text(
+            'Connecting audio...',
+            style: TextStyle(color: Colors.white),
+          ),
+        ],
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(
+            Icons.error_outline,
+            color: Colors.red,
+            size: 48,
+          ),
+          const SizedBox(height: 16),
+          Text(
+            _errorMessage!,
+            style: const TextStyle(color: Colors.red),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _initEngine,
+            child: const Text('Retry'),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        // Waveform visualization
+        Container(
+          width: 200,
+          height: 200,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 8.0,
+                offset: const Offset(2, 4),
+              ),
+            ],
+          ),
+          child: CustomPaint(
+            painter: WaveformWidget(volume),
+          ),
+        ),
+        if (!isJoined)
+          const Padding(
+            padding: EdgeInsets.only(top: 16),
+            child: Text(
+              'Connecting...',
+              style: TextStyle(color: Colors.white70),
             ),
-          ],
-        ),
-        // Use a CustomPaint child to draw your waveform
-        child: CustomPaint(
-          // painter will fill the *available* space, which is our 200×200 circle
-          painter: WaveformWidget(volume),
-        ),
-      ),	
+          ),
       ],
     );
   }
 }
-
