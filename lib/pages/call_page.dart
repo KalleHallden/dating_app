@@ -7,8 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import S
 import 'package:amplify_app/pages/home_page.dart';
 import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
 import '../services/call_service.dart'; // Add this import
-import '../components/like_button.dart';
-import '../components/dislike_button.dart';
+import '../components/managed_like_dislike_buttons.dart';
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -545,35 +544,12 @@ Don't try to be someone else's match, try to find yours.'''
                 children: [
                   // Like and Dislike buttons
                   if (_partnerId != null)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 8),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          DislikeButton(
-                            targetUserId: _partnerId!,
-                            size: 56,
-                            backgroundColor: Colors.white.withOpacity(0.9),
-                            iconColor: Colors.red,
-                            onDisliked: () {
-                              print('Disliked user: $_partnerId');
-                            },
-                          ),
-                          LikeButton(
-                            targetUserId: _partnerId!,
-                            size: 56,
-                            backgroundColor: Colors.white.withOpacity(0.9),
-                            iconColor: Colors.green,
-                            onLiked: () {
-                              print('Liked user: $_partnerId');
-                            },
-                            onMatched: () {
-                              print('Matched with user: $_partnerId');
-                              // You could add special match celebration here
-                            },
-                          ),
-                        ],
-                      ),
+                    ManagedLikeDislikeButtons(
+                      targetUserId: _partnerId!,
+                      onMatched: () {
+                        // Handle match celebration if needed
+                        print('Match celebration for call with $_partnerId');
+                      },
                     ),
                   // Progress bar
                   Padding(
