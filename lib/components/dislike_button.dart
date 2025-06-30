@@ -1,70 +1,164 @@
+// lib/widgets/dislike_button.dart
 import 'package:flutter/material.dart';
-import 'package:amplify_flutter/amplify_flutter.dart';
-import 'package:amplify_api/amplify_api.dart';
-import 'package:amplify_app/models/User.dart';
-import 'package:amplify_app/models/UserDislike.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import '../services/supabase_client.dart';
 
-class TestDislikeButton extends StatelessWidget {
-  const TestDislikeButton({Key? key}) : super(key: key);
+class DislikeButton extends StatefulWidget {
+  final String targetUserId;
+  final VoidCallback? onDisliked;
+  final double size;
+  final Color backgroundColor;
+  final Color iconColor;
+  final bool enabled;
 
-  Future<void> _createDislike() async {
-    print('Starting _createDislike');
+  const DislikeButton({
+    Key? key,
+    required this.targetUserId,
+    this.onDisliked,
+    this.size = 60,
+    this.backgroundColor = Colors.white,
+    this.iconColor = Colors.red,
+    this.enabled = true,
+  }) : super(key: key);
 
-    // Step 1: Get the current authenticated user's ID.
-    final currentUser = await Amplify.Auth.getCurrentUser();
-    print('Current user ID (disliker): ${currentUser.userId}');
+  @override
+  State<DislikeButton> createState() => _DislikeButtonState();
+}
 
-    // Step 2: Query all female users from the database.
-    print('Querying female users from the database...');
-    final listRequest = ModelQueries.list(
-      User.classType,
-      where: User.GENDER.eq("Female"),
+class _DislikeButtonState extends State<DislikeButton> with SingleTickerProviderStateMixin {
+  bool _isLoading = false;
+  bool _isDisliked = false;
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 150),
+      vsync: this,
     );
-    final listResponse = await Amplify.API.query(request: listRequest).response;
-    if (listResponse.hasErrors) {
-      print('Error listing female users: ${listResponse.errors}');
-      return;
-    }
-    final femaleUsers = listResponse.data?.items;
-    if (femaleUsers == null || femaleUsers.isEmpty) {
-      print('No female users found.');
-      return;
-    }
-    print('Found ${femaleUsers.length} female users.');
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.9,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+  }
 
-    // Step 3: Select one female user (for example, the last one).
-    final User? selectedUser = femaleUsers.last;
-    print('Selected female user ID (disliked): ${selectedUser!.userId}');
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
 
-    // Step 4: Create a UserDislike record.
-    final userDislike = UserDislike(
-      disliker: User(userId: currentUser.userId),
-      disliked: selectedUser,
-    );
-    print('Constructed UserDislike object: $userDislike');
+  Future<void> _handleDislike() async {
+    if (!widget.enabled || _isLoading || _isDisliked) return;
 
-    // Step 5: Send the mutation request.
-    final createRequest = ModelMutations.create<UserDislike>(
-      userDislike,
-      authorizationMode: APIAuthorizationType.userPools,
-    );
-    print('Sending create UserDislike request...');
-    final createResponse = await Amplify.API.mutate(request: createRequest).response;
-    if (createResponse.hasErrors) {
-      print('Error creating UserDislike: ${createResponse.errors}');
-    } else {
-      print('UserDislike created successfully: ${createResponse.data}');
+    // Animate button press
+    await _animationController.forward();
+    _animationController.reverse();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final currentUser = client.auth.currentUser;
+      
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Insert dislike into database
+      await client.from('dislikes').insert({
+        'disliker_id': currentUser.id,
+        'disliked_id': widget.targetUserId,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      setState(() {
+        _isDisliked = true;
+      });
+
+      // Call the callback if provided
+      widget.onDisliked?.call();
+
+      // Show feedback
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Disliked'),
+            duration: Duration(seconds: 1),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error creating dislike: $e');
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
-    print('Finished _createDislike');
   }
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      onPressed: _createDislike,
-      tooltip: 'Create Dislike',
-      child: const Icon(Icons.thumb_down),
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.backgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _handleDislike,
+            customBorder: const CircleBorder(),
+            child: Center(
+              child: _isLoading
+                  ? SizedBox(
+                      width: widget.size * 0.4,
+                      height: widget.size * 0.4,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(widget.iconColor),
+                      ),
+                    )
+                  : Icon(
+                      _isDisliked ? Icons.close : Icons.close,
+                      color: _isDisliked ? widget.iconColor.withOpacity(0.5) : widget.iconColor,
+                      size: widget.size * 0.5,
+                    ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
-

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import S
 import 'package:amplify_app/pages/home_page.dart';
 import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
 import '../services/call_service.dart'; // Add this import
+import '../components/like_button.dart';
+import '../components/dislike_button.dart';
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -13,7 +16,7 @@ class CallPage extends StatefulWidget {
   _CallPageState createState() => _CallPageState();
 }
 
-class _CallPageState extends State<CallPage> {
+class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   // Supabase client instance
   late final supabase.SupabaseClient _supabaseClient;
   // Supabase Realtime channel for user-specific broadcasts
@@ -31,6 +34,18 @@ class _CallPageState extends State<CallPage> {
   String? _matchedUserProfilePicture;
   final bool _debug = true;
 
+  // Progress bar and blur animation
+  late AnimationController _progressController;
+  late Animation<double> _progressAnimation;
+  late Animation<double> _blurAnimation;
+  Timer? _progressTimer;
+  DateTime? _callStartTime;
+  static const Duration _totalDuration = Duration(minutes: 5);
+  static const Duration _clearImageDuration = Duration(seconds: 30);
+
+  // Store the partner ID for like/dislike functionality
+  String? _partnerId;
+
   final List<String> options = [
     "go skiing or snorkelling?",
     "eat pizza or burgers?",
@@ -44,17 +59,65 @@ class _CallPageState extends State<CallPage> {
   void initState() {
     super.initState();
     _supabaseClient = supabase.Supabase.instance.client;
+    
+    // Initialize animation controller
+    _progressController = AnimationController(
+      duration: _totalDuration,
+      vsync: this,
+    );
+    
+    // Progress animation (0.0 to 1.0 over 5 minutes)
+    _progressAnimation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(
+      parent: _progressController,
+      curve: Curves.linear,
+    ));
+    
+    // Blur animation (20.0 to 0.0, reaching 0 at 4:30)
+    _blurAnimation = Tween<double>(
+      begin: 20.0,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _progressController,
+      curve: const Interval(
+        0.0,
+        0.9, // 90% of the animation (4:30 out of 5:00)
+        curve: Curves.easeInOut,
+      ),
+    ));
+    
     _setupSupabaseIntegration(); // Initialize Supabase Realtime and matchmaking
   }
 
   @override
   void dispose() {
+    _progressController.dispose();
+    _progressTimer?.cancel();
     _userChannel.unsubscribe(); // Unsubscribe from Realtime channel
     super.dispose();
   }
 
   void safePrint(String msg) {
     if (_debug) print('${DateTime.now().toIso8601String()}: $msg');
+  }
+
+  void _startProgressAnimation() {
+    _callStartTime = DateTime.now();
+    _progressController.forward();
+    
+    // Update progress every second for smooth animation
+    _progressTimer?.cancel();
+    _progressTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        // Force rebuild to update blur
+      });
+    });
   }
 
   /// Sets up Supabase Realtime listener and initiates the initial state clear and matchmaking join.
@@ -120,7 +183,10 @@ class _CallPageState extends State<CallPage> {
           _agoraChannelId = null;
           _matchedUserName = null;
           _matchedUserProfilePicture = null;
+          _partnerId = null;
         });
+        _progressController.stop();
+        _progressTimer?.cancel();
         // Navigate back to HomePage after successfully leaving the call
         Navigator.pushAndRemoveUntil(
           context,
@@ -137,23 +203,28 @@ class _CallPageState extends State<CallPage> {
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String; // This is the Agora channel ID
         final String partnerId = message['partnerId'] as String;
+        _partnerId = partnerId; // Store the partner ID
         final String role = message['role'] as String? ?? 'unknown';
 
         // Fetch partner's profile information from the 'users' table
         try {
           final partnerData = await _supabaseClient
               .from('users')
-              .select('name, profile_picture_url') // Select necessary fields
+              .select('name, profile_picture') // Changed from profile_picture_url to profile_picture
               .eq('user_id', partnerId)
               .maybeSingle(); // Use maybeSingle as partner might not exist or data is incomplete
 
           if (partnerData != null) {
             setState(() {
               _matchedUserName = partnerData['name'] as String?;
-              _matchedUserProfilePicture = partnerData['profile_picture_url'] as String?;
+              _matchedUserProfilePicture = partnerData['profile_picture'] as String?;
               _isCallActive = true; // Mark call as active
             });
             safePrint('Matched with: $_matchedUserName (ID: $partnerId) as $role');
+            safePrint('Profile picture URL: $_matchedUserProfilePicture'); // Debug log
+            
+            // Start the progress animation when call is initiated
+            _startProgressAnimation();
             
             // Update call status to active if both users have joined
             if (role == 'called') {
@@ -167,6 +238,7 @@ class _CallPageState extends State<CallPage> {
               _matchedUserProfilePicture = null;
               _isCallActive = true; // Still activate call, but with limited info
             });
+            _startProgressAnimation();
           }
         } catch (e) {
           safePrint('Error fetching partner data: $e');
@@ -175,6 +247,7 @@ class _CallPageState extends State<CallPage> {
             _matchedUserProfilePicture = null;
             _isCallActive = true;
           });
+          _startProgressAnimation();
         }
         return;
 
@@ -186,6 +259,8 @@ class _CallPageState extends State<CallPage> {
           _currentSupabaseCallId = null;
           _agoraChannelId = null;
         });
+        _progressController.stop();
+        _progressTimer?.cancel();
         // Navigate back to HomePage
         Navigator.pushAndRemoveUntil(
           context,
@@ -363,33 +438,74 @@ Don't try to be someone else's match, try to find yours.'''
     return Scaffold(
       body: Stack(
         children: [
-          if (_matchedUserProfilePicture != null)
-            Positioned.fill(
-              child: Image.network(
-                _matchedUserProfilePicture!,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Center(
-                  child: Text(
-                    'Image load error',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                ),
-                loadingBuilder: (_, w, lp) => lp == null
-                    ? w
-                    : Center(
-                        child: CircularProgressIndicator(
-                          value: lp.expectedTotalBytes != null
-                              ? lp.cumulativeBytesLoaded / (lp.expectedTotalBytes!)
-                              : null,
+          // Profile picture with animated blur
+          AnimatedBuilder(
+            animation: _blurAnimation,
+            builder: (context, child) {
+              return Stack(
+                children: [
+                  if (_matchedUserProfilePicture != null && _matchedUserProfilePicture!.isNotEmpty)
+                    Positioned.fill(
+                      child: Image.network(
+                        _matchedUserProfilePicture!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          print('Error loading profile picture: $error');
+                          print('URL was: $_matchedUserProfilePicture');
+                          return Container(
+                            color: Colors.grey[800],
+                            child: const Center(
+                              child: Icon(
+                                Icons.person,
+                                size: 100,
+                                color: Colors.white30,
+                              ),
+                            ),
+                          );
+                        },
+                        loadingBuilder: (context, child, loadingProgress) {
+                          if (loadingProgress == null) return child;
+                          return Container(
+                            color: Colors.grey[800],
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                value: loadingProgress.expectedTotalBytes != null
+                                    ? loadingProgress.cumulativeBytesLoaded /
+                                        loadingProgress.expectedTotalBytes!
+                                    : null,
+                                color: Colors.white,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    )
+                  else
+                    Positioned.fill(
+                      child: Container(
+                        color: Colors.grey[800],
+                        child: const Center(
+                          child: Icon(
+                            Icons.person,
+                            size: 100,
+                            color: Colors.white30,
+                          ),
                         ),
                       ),
-              ),
-            ),
-          Positioned.fill(
-            child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-              child: Container(color: Colors.black.withOpacity(0.4)),
-            ),
+                    ),
+                  // Blur overlay
+                  Positioned.fill(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(
+                        sigmaX: _blurAnimation.value,
+                        sigmaY: _blurAnimation.value,
+                      ),
+                      child: Container(color: Colors.black.withOpacity(0.4)),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
           Positioned(
             top: 40,
@@ -424,34 +540,97 @@ Don't try to be someone else's match, try to find yours.'''
             alignment: Alignment.bottomCenter,
             child: Padding(
               padding: const EdgeInsets.only(bottom: 40),
-              child: Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 8,
-                child: Container(
-                  width: MediaQuery.of(context).size.width * 0.9,
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text('Would you rather', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 10),
-                      Row(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Like and Dislike buttons
+                  if (_partnerId != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 60, vertical: 8),
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          IconButton(icon: const Icon(Icons.arrow_left), onPressed: _prevOption),
-                          Expanded(
-                            child: Text(
-                              options[currentIndex],
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 16),
-                            ),
+                          DislikeButton(
+                            targetUserId: _partnerId!,
+                            size: 56,
+                            backgroundColor: Colors.white.withOpacity(0.9),
+                            iconColor: Colors.red,
+                            onDisliked: () {
+                              print('Disliked user: $_partnerId');
+                            },
                           ),
-                          IconButton(icon: const Icon(Icons.arrow_right), onPressed: _nextOption),
+                          LikeButton(
+                            targetUserId: _partnerId!,
+                            size: 56,
+                            backgroundColor: Colors.white.withOpacity(0.9),
+                            iconColor: Colors.green,
+                            onLiked: () {
+                              print('Liked user: $_partnerId');
+                            },
+                            onMatched: () {
+                              print('Matched with user: $_partnerId');
+                              // You could add special match celebration here
+                            },
+                          ),
                         ],
                       ),
-                    ],
+                    ),
+                  // Progress bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                    child: AnimatedBuilder(
+                      animation: _progressAnimation,
+                      builder: (context, child) {
+                        return Container(
+                          height: 8,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white, width: 1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(3),
+                            child: LinearProgressIndicator(
+                              value: _progressAnimation.value,
+                              backgroundColor: Colors.transparent,
+                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                              minHeight: 6,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
+                  // Would you rather card
+                  Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    elevation: 8,
+                    child: Container(
+                      width: MediaQuery.of(context).size.width * 0.9,
+                      padding: const EdgeInsets.all(20),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('Would you rather', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              IconButton(icon: const Icon(Icons.arrow_left), onPressed: _prevOption),
+                              Expanded(
+                                child: Text(
+                                  options[currentIndex],
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 16),
+                                ),
+                              ),
+                              IconButton(icon: const Icon(Icons.arrow_right), onPressed: _nextOption),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

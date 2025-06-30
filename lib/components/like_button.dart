@@ -1,76 +1,204 @@
+// lib/widgets/like_button.dart
 import 'package:flutter/material.dart';
-import 'package:amplify_flutter/amplify_flutter.dart';
-import 'package:amplify_api/amplify_api.dart';
-import 'package:amplify_app/models/User.dart';
-import 'package:amplify_app/models/UserLike.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import '../services/supabase_client.dart';
 
-class TestLikeButton extends StatelessWidget {
-  const TestLikeButton({Key? key}) : super(key: key);
+class LikeButton extends StatefulWidget {
+  final String targetUserId;
+  final VoidCallback? onLiked;
+  final VoidCallback? onMatched;
+  final double size;
+  final Color backgroundColor;
+  final Color iconColor;
+  final bool enabled;
 
-  Future<void> _createLike() async {
-    print('Starting _createLike');
+  const LikeButton({
+    Key? key,
+    required this.targetUserId,
+    this.onLiked,
+    this.onMatched,
+    this.size = 60,
+    this.backgroundColor = Colors.white,
+    this.iconColor = Colors.green,
+    this.enabled = true,
+  }) : super(key: key);
 
-    // Step 1: Get the current authenticated user's ID.
-    final currentUser = await Amplify.Auth.getCurrentUser();
-    print('Current user ID (liker): ${currentUser.userId}');
+  @override
+  State<LikeButton> createState() => _LikeButtonState();
+}
 
-    // Step 2: Query all female users from the database.
-    // Assuming your generated User model has a static field "GENDER" with an eq operator.
-    print('Querying female users from the database...');
-    final listRequest = ModelQueries.list(
-      User.classType,
-      where: User.GENDER.eq("Female"),
+class _LikeButtonState extends State<LikeButton> with SingleTickerProviderStateMixin {
+  bool _isLoading = false;
+  bool _isLiked = false;
+  late AnimationController _animationController;
+  late Animation<double> _scaleAnimation;
+  late Animation<double> _heartAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 300),
+      vsync: this,
     );
-    final listResponse = await Amplify.API.query(request: listRequest).response;
-    if (listResponse.hasErrors) {
-      print('Error listing female users: ${listResponse.errors}');
-      return;
+    _scaleAnimation = Tween<double>(
+      begin: 1.0,
+      end: 0.9,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.easeInOut,
+    ));
+    _heartAnimation = Tween<double>(
+      begin: 1.0,
+      end: 1.2,
+    ).animate(CurvedAnimation(
+      parent: _animationController,
+      curve: Curves.elasticOut,
+    ));
+  }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleLike() async {
+    if (!widget.enabled || _isLoading || _isLiked) return;
+
+    // Animate button press
+    await _animationController.forward();
+    _animationController.reverse();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final currentUser = client.auth.currentUser;
+      
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Insert like into database
+      await client.from('likes').insert({
+        'liker_id': currentUser.id,
+        'liked_id': widget.targetUserId,
+        'created_at': DateTime.now().toIso8601String(),
+      });
+
+      // Check if it's a match (the other person already liked us)
+      final matchCheck = await client
+          .from('likes')
+          .select()
+          .eq('liker_id', widget.targetUserId)
+          .eq('liked_id', currentUser.id)
+          .maybeSingle();
+
+      setState(() {
+        _isLiked = true;
+      });
+
+      if (matchCheck != null) {
+        // It's a match!
+        widget.onMatched?.call();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('It\'s a match! 🎉'),
+              duration: Duration(seconds: 2),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        // Just a regular like
+        widget.onLiked?.call();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Liked!'),
+              duration: Duration(seconds: 1),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error creating like: $e');
+      
+      // Show error message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
-    final femaleUsers = listResponse.data?.items;
-    if (femaleUsers == null || femaleUsers.isEmpty) {
-      print('No female users found.');
-      return;
-    }
-    print('Found ${femaleUsers.length} female users.');
-
-    // Step 3: Select one female user (for example, the first one).
-    final User? selectedUser = femaleUsers.last;
-    print('Selected female user ID (liked): ${selectedUser!.userId}');
-
-    final User likingUser = User(
-	    userId: currentUser.userId,
-	    );
-
-    // Step 4: Create a UserLike record.
-    final userLike = UserLike(
-      // Do not provide an explicit id so that the backend auto-generates one.
-      // if so, pass null or omit them if they're optional.
-      liker: likingUser,
-      liked: selectedUser,
-    );
-    print('Constructed UserLike object: $userLike');
-
-    // Step 5: Send the mutation request.
-    final createRequest = ModelMutations.create<UserLike>(
-      userLike,
-      authorizationMode: APIAuthorizationType.userPools,
-    );
-    print('Sending create UserLike request...');
-    final createResponse = await Amplify.API.mutate(request: createRequest).response;
-    if (createResponse.hasErrors) {
-      print('Error creating UserLike: ${createResponse.errors}');
-    } else {
-      print('UserLike created successfully: ${createResponse.data}');
-    }
-    print('Finished _createLike');
   }
 
   @override
   Widget build(BuildContext context) {
-    return FloatingActionButton(
-      onPressed: _createLike,
-      tooltip: 'Create Like',
-      child: const Icon(Icons.thumb_up),
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: Container(
+        width: widget.size,
+        height: widget.size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: widget.backgroundColor,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _handleLike,
+            customBorder: const CircleBorder(),
+            child: Center(
+              child: _isLoading
+                  ? SizedBox(
+                      width: widget.size * 0.4,
+                      height: widget.size * 0.4,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(widget.iconColor),
+                      ),
+                    )
+                  : AnimatedBuilder(
+                      animation: _heartAnimation,
+                      builder: (context, child) {
+                        return Transform.scale(
+                          scale: _isLiked ? _heartAnimation.value : 1.0,
+                          child: Icon(
+                            _isLiked ? Icons.favorite : Icons.favorite_border,
+                            color: _isLiked ? widget.iconColor : widget.iconColor,
+                            size: widget.size * 0.5,
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
