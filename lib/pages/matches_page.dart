@@ -1,5 +1,5 @@
 // lib/pages/matches_page.dart
-import 'package:amplify_app/components/match_list_item.dart';
+import 'package:amplify_app/widgets/match_list_item.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
@@ -44,12 +44,12 @@ class _MatchesPageState extends State<MatchesPage> {
         return;
       }
 
-      // Query matches first
+      // Query matches that are not unmatched (soft delete approach)
       final matchesResponse = await client
           .from('matches')
           .select('*')
           .or('user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}')
-          .isFilter('unmatched_at', null)
+          .isFilter('unmatched_at', null)  // Use is_ instead of isFilter for null checks
           .order('created_at', ascending: false);
 
       // Process matches to get the other user's data

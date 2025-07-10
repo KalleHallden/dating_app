@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import S
 import 'package:amplify_app/pages/home_page.dart';
 import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
 import '../services/call_service.dart'; // Add this import
-import '../components/managed_like_dislike_buttons.dart';
+import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';
 
 class CallPage extends StatefulWidget {

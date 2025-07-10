@@ -3,10 +3,10 @@ import 'package:amplify_app/pages/call_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/signup_provider.dart';
-import '../components/custom_progress_bar.dart';
-import '../components/signup_step1.dart';
-import '../components/signup_step2.dart';
-import '../components/signup_step3.dart';
+import '../widgets/custom_progress_bar.dart';
+import '../widgets/signup_step1.dart';
+import '../widgets/signup_step2.dart';
+import '../widgets/signup_step3.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 class SignupScreen extends StatefulWidget {

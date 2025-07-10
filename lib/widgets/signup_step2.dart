@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/UserLocation.dart';
-import '../components/location_picker.dart';
+import '../widgets/location_picker.dart';
 
 class SignupStep2 extends StatefulWidget {
   final Function(String gender, String genderPreference, UserLocation location) onDataCollected;

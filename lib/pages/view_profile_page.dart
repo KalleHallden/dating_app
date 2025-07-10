@@ -21,11 +21,51 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
   String? _errorMessage;
+  supabase.RealtimeChannel? _userStatusChannel;
 
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
+    _subscribeToUserStatus();
+  }
+
+  @override
+  void dispose() {
+    _userStatusChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _subscribeToUserStatus() {
+    final client = SupabaseClient.instance.client;
+    
+    // Subscribe to changes in the users table for this specific user
+    _userStatusChannel = client
+        .channel('user-status-${widget.userId}')
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'users',
+          filter: supabase.PostgresChangeFilter(
+            type: supabase.PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: widget.userId,
+          ),
+          callback: (payload) {
+            print('User status update received: ${payload.newRecord}');
+            final updatedData = payload.newRecord;
+            
+            if (mounted && _userData != null) {
+              setState(() {
+                // Update only the online status and any other fields that might change
+                _userData!['online'] = updatedData['online'] ?? false;
+                _userData!['is_available'] = updatedData['is_available'] ?? false;
+                _userData!['updated_at'] = updatedData['updated_at'];
+              });
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadUserProfile() async {
@@ -48,6 +88,39 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
         _errorMessage = 'Failed to load profile: $e';
         _isLoading = false;
       });
+    }
+      
+
+  void _subscribeToUserStatus() {
+    final client = SupabaseClient.instance.client;
+    
+    // Subscribe to changes in the users table for this specific user
+    _userStatusChannel = client
+        .channel('user-status-${widget.userId}')
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'users',
+          filter: supabase.PostgresChangeFilter(
+            type: supabase.PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: widget.userId,
+          ),
+          callback: (payload) {
+            print('User status update received: ${payload.newRecord}');
+            final updatedData = payload.newRecord;
+            
+            if (mounted && _userData != null) {
+              setState(() {
+                // Update only the online status and any other fields that might change
+                _userData!['online'] = updatedData['online'] ?? false;
+                _userData!['is_available'] = updatedData['is_available'] ?? false;
+                _userData!['updated_at'] = updatedData['updated_at'];
+              });
+            }
+          },
+        )
+        .subscribe();
     }
   }
 

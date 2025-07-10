@@ -1,5 +1,5 @@
 // lib/pages/profile_page.dart
-import 'package:amplify_app/components/signout_button.dart';
+import 'package:amplify_app/widgets/signout_button.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
