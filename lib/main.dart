@@ -8,6 +8,7 @@ import 'pages/signup_screen.dart';
 import 'pages/call_page.dart';
 import 'providers/signup_provider.dart';
 import 'services/supabase_client.dart';
+import 'services/online_status_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,6 +31,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   supabase.Session? _session; // Use a nullable Session object
+  bool _isCheckingAuth = true; // Add loading state
 
   @override
   void initState() {
@@ -39,12 +41,24 @@ class _MyAppState extends State<MyApp> {
       final event = data.event;
       final session = data.session;
 
+      print('Auth Event: $event, Session: ${session?.accessToken != null ? 'Present' : 'Null'}');
+      
+      // Update online status based on auth state
+      if (event == supabase.AuthChangeEvent.signedIn && session != null) {
+        OnlineStatusService().initialize();
+      } else if (event == supabase.AuthChangeEvent.signedOut) {
+        OnlineStatusService().dispose();
+      }
+      
       if (mounted) {
         setState(() {
           _session = session;
+          // If we receive a SIGNED_OUT event, ensure session is null
+          if (event == supabase.AuthChangeEvent.signedOut) {
+            _session = null;
+          }
         });
       }
-      print('Auth Event: $event, Session: ${session?.accessToken != null ? 'Present' : 'Null'}');
     });
 
     // Also get initial session on startup
@@ -52,14 +66,31 @@ class _MyAppState extends State<MyApp> {
 
     // Set up deep link listener for Supabase
     _setupDeepLinkListener();
+    
+    // Initialize online status service if user is authenticated
+    final session = SupabaseClient.instance.client.auth.currentSession;
+    if (session != null) {
+      OnlineStatusService().initialize();
+    }
   }
 
   Future<void> _getInitialSession() async {
-    final session = SupabaseClient.instance.client.auth.currentSession;
-    if (mounted) {
-      setState(() {
-        _session = session;
-      });
+    try {
+      final session = SupabaseClient.instance.client.auth.currentSession;
+      if (mounted) {
+        setState(() {
+          _session = session;
+          _isCheckingAuth = false;
+        });
+      }
+    } catch (e) {
+      print('Error getting initial session: $e');
+      if (mounted) {
+        setState(() {
+          _session = null;
+          _isCheckingAuth = false;
+        });
+      }
     }
   }
 
@@ -105,35 +136,20 @@ class _MyAppState extends State<MyApp> {
 
   Future<Widget> _getInitialScreen() async {
     final client = SupabaseClient.instance.client;
-    final session = _session; // Use the state variable
-    final user = client.auth.currentUser;
+    
+    // CRITICAL: Always check the current session/user state fresh
+    // Don't rely on the state variable during initial screen determination
+    final currentSession = client.auth.currentSession;
+    final currentUser = client.auth.currentUser;
 
-    // If a session exists but the user object is null (e.g., user deleted on server)
-    // or if the session is invalid, explicitly sign out to clear cache.
-    if (session != null && user == null) {
-      print('DEBUG: Session exists but user is null or invalid. Attempting signOut to clear cache.');
-      try {
-        await client.auth.signOut();
-        // After signOut, session and user should be null, which will correctly
-        // lead to the AuthScreen.
-        return const AuthScreen(initialMessage: 'Session cleared. Please sign in.');
-      } catch (e) {
-        print('Error during signOut: $e');
-        // Fallback to AuthScreen if signOut fails
-        return const AuthScreen(initialMessage: 'Error clearing session. Please sign in.');
-      }
-    }
-
-    // Case 1: No session or user found
-    if (session == null || user == null) {
+    // Case 1: No session or user found - definitely need to authenticate
+    if (currentSession == null || currentUser == null) {
       print('DEBUG: No session or user. Navigating to AuthScreen.');
-      return const AuthScreen(
-          initialMessage:
-              'Auth session missing! Please sign in or complete email confirmation.');
+      return const AuthScreen();
     }
 
     // Case 2: User exists but email is not confirmed
-    if (user.emailConfirmedAt == null) {
+    if (currentUser.emailConfirmedAt == null) {
       print('DEBUG: User email not confirmed. Navigating to AuthScreen.');
       return const AuthScreen(
           initialMessage:
@@ -141,7 +157,7 @@ class _MyAppState extends State<MyApp> {
     }
 
     // Case 3: User exists, email confirmed. Now check user profile data.
-    final userId = user.id;
+    final userId = currentUser.id;
     try {
       final userData = await client
           .from('users')
@@ -161,12 +177,12 @@ class _MyAppState extends State<MyApp> {
       }
     } catch (e) {
       print('Error fetching user data: $e');
-      return const AuthScreen(
-          initialMessage: 'Failed to load user data. Please try again.');
+      // If we can't fetch user data, assume they need to complete signup
+      return const SignupScreen();
     }
 
-    // Case 4: User exists, email confirmed, profile complete. Go to CallPage.
-    print('DEBUG: User profile complete. Navigating to CallPage.');
+    // Case 4: User exists, email confirmed, profile complete. Go to HomePage.
+    print('DEBUG: User profile complete. Navigating to HomePage.');
     return const HomePage();
   }
 
@@ -201,19 +217,27 @@ class _MyAppState extends State<MyApp> {
           unselectedItemColor: Colors.grey[400],
         ),
       ),
-      home: FutureBuilder<Widget>(
-        // Depend on _session directly, which is updated by the listener
-        future: _getInitialScreen(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(
+      home: _isCheckingAuth 
+          ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),
-            );
-          }
-          return snapshot.data ?? const AuthScreen();
-        },
-      ),
+            )
+          : FutureBuilder<Widget>(
+              // Re-evaluate the initial screen whenever session changes
+              future: _getInitialScreen(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                if (snapshot.hasError) {
+                  return AuthScreen(
+                    initialMessage: 'Error: ${snapshot.error}',
+                  );
+                }
+                return snapshot.data ?? const AuthScreen();
+              },
+            ),
     );
   }
 }
-

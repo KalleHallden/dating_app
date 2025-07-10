@@ -8,6 +8,7 @@ import 'package:amplify_app/pages/home_page.dart';
 import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
 import '../services/call_service.dart'; // Add this import
 import '../components/managed_like_dislike_buttons.dart';
+import '../services/online_status_service.dart';
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -95,6 +96,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _progressController.dispose();
     _progressTimer?.cancel();
     _userChannel.unsubscribe(); // Unsubscribe from Realtime channel
+    // Set user as available when leaving call
+    OnlineStatusService().setInCall(false);
     super.dispose();
   }
 
@@ -186,6 +189,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         });
         _progressController.stop();
         _progressTimer?.cancel();
+        // Set user as available when call ends
+        OnlineStatusService().setInCall(false);
         // Navigate back to HomePage after successfully leaving the call
         Navigator.pushAndRemoveUntil(
           context,
@@ -225,6 +230,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             // Start the progress animation when call is initiated
             _startProgressAnimation();
             
+            // Set user as in call (not available)
+            OnlineStatusService().setInCall(true);
+            
             // Update call status to active if both users have joined
             if (role == 'called') {
               await _callService.markCallAsActive(_currentSupabaseCallId!);
@@ -260,6 +268,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         });
         _progressController.stop();
         _progressTimer?.cancel();
+        // Set user as available when call ends
+        OnlineStatusService().setInCall(false);
         // Navigate back to HomePage
         Navigator.pushAndRemoveUntil(
           context,
@@ -346,6 +356,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     }
 
     setState(() => _isLeavingCall = true);
+
+    // Set user as available when leaving call
+    OnlineStatusService().setInCall(false);
 
     // Update call status in database
     await _callService.endCall(_currentSupabaseCallId!);
