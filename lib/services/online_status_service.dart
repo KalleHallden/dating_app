@@ -70,16 +70,19 @@ class OnlineStatusService with WidgetsBindingObserver {
       
       if (user == null) return;
 
+      // Don't set online to true if user is in a call
+      final effectiveOnline = _isInCall ? false : online;
+
       await client
           .from('users')
           .update({
-            'online': online,
+            'online': effectiveOnline,
             'is_available': isAvailable,
             'updated_at': DateTime.now().toIso8601String(),
           })
           .eq('user_id', user.id);
       
-      print('User status updated - Online: $online, Available: $isAvailable');
+      print('User status updated - Online: $effectiveOnline, Available: $isAvailable, InCall: $_isInCall');
     } catch (e) {
       print('Error updating user status: $e');
     }
@@ -88,7 +91,9 @@ class OnlineStatusService with WidgetsBindingObserver {
   // Call this when user enters a call
   Future<void> setInCall(bool inCall) async {
     _isInCall = inCall;
-    await _updateUserStatus(online: true, isAvailable: !inCall);
+    // When entering a call, set online to false
+    // When leaving a call, set online to true
+    await _updateUserStatus(online: !inCall, isAvailable: !inCall);
   }
 
   @override

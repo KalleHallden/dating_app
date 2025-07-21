@@ -230,7 +230,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             // Start the progress animation when call is initiated
             _startProgressAnimation();
             
-            // Set user as in call (not available)
+            // Set user as in call (not available and not online)
             OnlineStatusService().setInCall(true);
             
             // Update call status to active if both users have joined
@@ -276,6 +276,48 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           MaterialPageRoute(builder: (_) => const HomePage()),
           (_) => false,
         );
+        return;
+
+      case 'partnerLeftCall':
+        safePrint('Supabase Realtime: Partner left the call.');
+        if (!mounted) return;
+        
+        final partnerName = message['partnerName'] as String? ?? 'User';
+        
+        // Show notification that partner left
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$partnerName left the phone call'),
+            duration: const Duration(seconds: 3),
+            backgroundColor: Colors.orange,
+          ),
+        );
+        
+        // Reset call state
+        setState(() {
+          _isCallActive = false;
+          _isLeavingCall = false;
+          _currentSupabaseCallId = null;
+          _agoraChannelId = null;
+          _matchedUserName = null;
+          _matchedUserProfilePicture = null;
+          _partnerId = null;
+        });
+        
+        _progressController.stop();
+        _progressTimer?.cancel();
+        
+        // Set user as available
+        OnlineStatusService().setInCall(false);
+        
+        // Automatically rejoin matchmaking
+        Future.delayed(const Duration(seconds: 1), () {
+          if (mounted) {
+            setState(() => _isConnecting = false);
+            _joinMatchmaking();
+          }
+        });
+        
         return;
 
       default:
