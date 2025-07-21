@@ -17,6 +17,8 @@ class _MatchesPageState extends State<MatchesPage> {
   bool _isLoading = true;
   String? _errorMessage;
   supabase.RealtimeChannel? _matchesChannel;
+  supabase.RealtimeChannel? _usersStatusChannel;
+  Set<String> _matchedUserIds = {};
 
   @override
   void initState() {
@@ -28,6 +30,7 @@ class _MatchesPageState extends State<MatchesPage> {
   @override
   void dispose() {
     _matchesChannel?.unsubscribe();
+    _usersStatusChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -49,15 +52,17 @@ class _MatchesPageState extends State<MatchesPage> {
           .from('matches')
           .select('*')
           .or('user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}')
-          .isFilter('unmatched_at', null)  // Use is_ instead of isFilter for null checks
+          .isFilter('unmatched_at', null)
           .order('created_at', ascending: false);
 
       // Process matches to get the other user's data
       final processedMatches = <Map<String, dynamic>>[];
+      final userIds = <String>{};
       
       for (final match in matchesResponse) {
         final isUser1 = match['user1_id'] == currentUser.id;
         final otherUserId = isUser1 ? match['user2_id'] : match['user1_id'];
+        userIds.add(otherUserId);
         
         // Fetch the other user's data
         try {
@@ -84,8 +89,12 @@ class _MatchesPageState extends State<MatchesPage> {
 
       setState(() {
         _matches = processedMatches;
+        _matchedUserIds = userIds;
         _isLoading = false;
       });
+      
+      // Subscribe to user status updates for all matched users
+      _subscribeToUserStatusUpdates();
     } catch (e) {
       print('Error loading matches: $e');
       setState(() {
@@ -112,21 +121,41 @@ class _MatchesPageState extends State<MatchesPage> {
             _loadMatches();
           },
         )
+        .subscribe();
+  }
+
+  void _subscribeToUserStatusUpdates() {
+    // Unsubscribe from previous channel if exists
+    _usersStatusChannel?.unsubscribe();
+    
+    if (_matchedUserIds.isEmpty) return;
+    
+    final client = SupabaseClient.instance.client;
+    
+    // Create a unique channel name
+    final channelName = 'users-status-${DateTime.now().millisecondsSinceEpoch}';
+    
+    _usersStatusChannel = client
+        .channel(channelName)
         .onPostgresChanges(
           event: supabase.PostgresChangeEvent.update,
           schema: 'public',
           table: 'users',
           callback: (payload) {
-            // Update online status when user status changes
             final updatedUser = payload.newRecord;
-            setState(() {
-              _matches = _matches.map((match) {
-                if (match['user_id'] == updatedUser['user_id']) {
-                  match['is_online'] = updatedUser['online'] ?? false;
-                }
-                return match;
-              }).toList();
-            });
+            final userId = updatedUser['user_id'];
+            
+            // Check if this user is in our matches
+            if (_matchedUserIds.contains(userId)) {
+              setState(() {
+                _matches = _matches.map((match) {
+                  if (match['user_id'] == userId) {
+                    match['is_online'] = updatedUser['online'] ?? false;
+                  }
+                  return match;
+                }).toList();
+              });
+            }
           },
         )
         .subscribe();
