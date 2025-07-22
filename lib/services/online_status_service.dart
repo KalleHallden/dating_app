@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'supabase_client.dart';
 
 /// Manages the user's online/availability status via heartbeat and realtime updates.
-/// Removes any blocking DB calls at startup to avoid isolate crashes.
+/// Uses heartbeat mechanism to handle app crashes and force-quit scenarios.
 class OnlineStatusService with WidgetsBindingObserver {
   static final OnlineStatusService _instance = OnlineStatusService._internal();
   factory OnlineStatusService() => _instance;
@@ -15,13 +15,16 @@ class OnlineStatusService with WidgetsBindingObserver {
   bool _isInitialized = false;
   bool _isInCall = false;
   StreamSubscription<List<Map<String, dynamic>>>? _callSubscription;
-  bool _lastOnlineStatus = false; // Track last online status to avoid redundant updates
+  bool _lastOnlineStatus = false;
+  DateTime? _lastHeartbeat;
+  static const Duration _heartbeatInterval = Duration(seconds: 30); // Send heartbeat every 30 seconds
+  static const Duration _staleThreshold = Duration(minutes: 2); // Consider stale after 2 minutes
 
   /// Initialize: immediately mark online, start heartbeat, subscribe to call events.
   Future<void> initialize() async {
     if (_isInitialized) return;
     _isInitialized = true;
-    _isInCall = false; // Reset inCall on initialization
+    _isInCall = false;
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -29,34 +32,65 @@ class OnlineStatusService with WidgetsBindingObserver {
     final client = SupabaseClient.instance.client;
     final user = client.auth.currentUser;
     if (user != null) {
-      print('DEBUG: Initializing with user ${user.id}, setting online = true');
-      await _updateUserStatus(online: true, isAvailable: true);
+      print('DEBUG: Initializing with user ${user.id}, setting online = true with heartbeat');
+      await _sendHeartbeat();
     } else {
       print('DEBUG: No user found during initialization');
     }
 
-    // Start periodic heartbeat to maintain online status
+    // Start periodic heartbeat
     _startHeartbeat();
 
     // Subscribe to realtime call events for this user
     _subscribeToCallStatus();
   }
 
-  /// Heartbeat: update status every 2 minutes
+  /// Send heartbeat to server
+  Future<void> _sendHeartbeat() async {
+    try {
+      final client = SupabaseClient.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) {
+        print('DEBUG: No user found, skipping heartbeat');
+        return;
+      }
+
+      final now = DateTime.now();
+      final effectiveOnline = !_isInCall;
+      
+      print('DEBUG: Sending heartbeat for user ${user.id}: online=$effectiveOnline');
+      
+      await client
+          .from('users')
+          .update({
+            'online': effectiveOnline,
+            'is_available': !_isInCall,
+            'last_heartbeat': now.toIso8601String(),
+            'updated_at': now.toIso8601String(),
+          })
+          .eq('user_id', user.id);
+      
+      _lastHeartbeat = now;
+      _lastOnlineStatus = effectiveOnline;
+      print('DEBUG: Heartbeat sent successfully at ${now.toIso8601String()}');
+    } catch (e) {
+      print('ERROR: Failed to send heartbeat: $e');
+    }
+  }
+
+  /// Start periodic heartbeat
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(
-      const Duration(minutes: 2),
-      (_) => _updateUserStatus(
-        online: !_isInCall,
-        isAvailable: !_isInCall,
-      ),
-    );
+    // Send initial heartbeat immediately
+    _sendHeartbeat();
+    
+    // Then send periodic heartbeats
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _sendHeartbeat());
   }
 
   /// Subscribe to active calls stream, flip in-call flag as events arrive
   void _subscribeToCallStatus() {
-    _callSubscription?.cancel(); // Cancel any existing subscription
+    _callSubscription?.cancel();
     final client = SupabaseClient.instance.client;
     final user = client.auth.currentUser;
     if (user == null) {
@@ -75,7 +109,7 @@ class OnlineStatusService with WidgetsBindingObserver {
         if (_isInCall) {
           _isInCall = false;
           print('DEBUG: No active calls, resetting inCall=false');
-          _updateUserStatus(online: true, isAvailable: true);
+          _sendHeartbeat(); // Send immediate heartbeat on status change
         }
         return;
       }
@@ -84,58 +118,26 @@ class OnlineStatusService with WidgetsBindingObserver {
       if (inAnyCall != _isInCall) {
         _isInCall = inAnyCall;
         print('DEBUG: Call status changed, inCall=$inAnyCall, updating status');
-        _updateUserStatus(
-          online: !inAnyCall,
-          isAvailable: !inAnyCall,
-        );
+        _sendHeartbeat(); // Send immediate heartbeat on status change
       }
     });
   }
 
-  /// Updates `online` and `is_available`, no initial DB queries to avoid crashes
+  /// Updates online status (now integrated with heartbeat)
   Future<void> _updateUserStatus({
     required bool online,
     required bool isAvailable,
   }) async {
-    try {
-      final client = SupabaseClient.instance.client;
-      final user = client.auth.currentUser;
-      if (user == null) {
-        print('DEBUG: No user found, skipping status update');
-        return;
-      }
-
-      final effectiveOnline = _isInCall ? false : online;
-      // Avoid redundant updates
-      if (_lastOnlineStatus == effectiveOnline) {
-        print('DEBUG: Skipping redundant update, online=$effectiveOnline');
-        return;
-      }
-      _lastOnlineStatus = effectiveOnline;
-
-      print('DEBUG: Updating status for user ${user.id}: online=$effectiveOnline, isAvailable=$isAvailable');
-      await client
-          .from('users')
-          .update({
-            'online': effectiveOnline,
-            'is_available': isAvailable,
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('user_id', user.id);
-      print('DEBUG: Status update completed successfully');
-    } catch (e) {
-      print('ERROR: Failed to update status: $e');
-    }
+    // This method is now primarily used for immediate status changes
+    // The heartbeat mechanism handles regular updates
+    await _sendHeartbeat();
   }
 
   /// Manually toggle in-call status (e.g. when starting/ending a call)
   Future<void> setInCall(bool inCall) async {
     _isInCall = inCall;
     print('DEBUG: Setting inCall=$inCall');
-    await _updateUserStatus(
-      online: !inCall,
-      isAvailable: !inCall,
-    );
+    await _sendHeartbeat();
   }
 
   @override
@@ -143,41 +145,57 @@ class OnlineStatusService with WidgetsBindingObserver {
     print('DEBUG: AppLifecycleState changed to $state');
     if (state == AppLifecycleState.resumed) {
       // App enters foreground
-      _isInCall = false; // Reset inCall on resume
-      _lastOnlineStatus = false; // Force update to online
-      _subscribeToCallStatus(); // Reinitialize call subscription
-      _updateUserStatus(
-        online: !_isInCall,
-        isAvailable: !_isInCall,
-      );
-      _startHeartbeat();
+      _isInCall = false;
+      _lastOnlineStatus = false;
+      _subscribeToCallStatus();
+      _startHeartbeat(); // Restart heartbeat
     } else if (state == AppLifecycleState.paused) {
       // App goes to background
-      _isInCall = false; // Reset inCall when exiting
-      print('DEBUG: App paused, resetting inCall=false');
+      _isInCall = false;
+      print('DEBUG: App paused, sending final offline status');
       _heartbeatTimer?.cancel();
-      _updateUserStatus(
-        online: false,
-        isAvailable: false,
-      );
+      
+      // Send one final status update before going to background
+      final client = SupabaseClient.instance.client;
+      final user = client.auth.currentUser;
+      if (user != null) {
+        // Use synchronous-style update for better reliability
+        client
+            .from('users')
+            .update({
+              'online': false,
+              'is_available': false,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', user.id)
+            .then((_) => print('DEBUG: Final offline status sent'))
+            .catchError((e) => print('ERROR: Failed to send final offline status: $e'));
+      }
     } else if (state == AppLifecycleState.detached) {
-      // App is killed
-      _isInCall = false; // Reset inCall when killed
-      print('DEBUG: App detached, resetting inCall=false');
+      // App is being terminated - this may not always be called
+      _isInCall = false;
+      print('DEBUG: App detached');
       _heartbeatTimer?.cancel();
-      // No client-side status update here; handled by server-side trigger
+      // Note: We can't reliably send network requests here
+      // The server-side cleanup will handle this case
     }
   }
 
-  /// Dispose and mark offline
+  /// Check if heartbeat is stale (for debugging)
+  bool isHeartbeatStale() {
+    if (_lastHeartbeat == null) return true;
+    return DateTime.now().difference(_lastHeartbeat!) > _staleThreshold;
+  }
+
+  /// Dispose and cleanup
   void dispose() {
     print('DEBUG: Disposing OnlineStatusService');
-    _isInCall = false; // Reset inCall on dispose
+    _isInCall = false;
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
     _callSubscription?.cancel();
     _isInitialized = false;
     _lastOnlineStatus = false;
-    // No client-side status update here; handled by server-side trigger
+    _lastHeartbeat = null;
   }
 }
