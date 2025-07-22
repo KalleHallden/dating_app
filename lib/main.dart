@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
 import 'package:uni_links/uni_links.dart'; // Import uni_links
+
 import 'pages/auth_screen.dart';
 import 'pages/signup_screen.dart';
 import 'pages/call_page.dart';
@@ -14,6 +15,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Ensure Supabase is initialized with the correct redirect URL and authFlowType
   await SupabaseClient.initialize();
+
+  // ← NEW: kick off your online‐status service on cold start
+  await OnlineStatusService().initialize();
+
   runApp(
     ChangeNotifierProvider<SignupProvider>(
       create: (_) => SignupProvider(),
@@ -241,3 +246,4 @@ class _MyAppState extends State<MyApp> {
     );
   }
 }
+
