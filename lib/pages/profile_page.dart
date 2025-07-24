@@ -19,12 +19,62 @@ class _ProfilePageState extends State<ProfilePage> {
   String? _errorMessage;
   XFile? _selectedImage;
   bool _isUploadingImage = false;
+  supabase.RealtimeChannel? _realtimeChannel;
 
   @override
   void initState() {
     super.initState();
     _loadUserProfile();
+    _setupRealtimeSubscription();
   }
+
+  @override
+  void dispose() {
+    // Clean up the real-time subscription
+    if (_realtimeChannel != null) {
+      SupabaseClient.instance.client.removeChannel(_realtimeChannel!);
+    }
+    super.dispose();
+  }
+
+  Future<void> _setupRealtimeSubscription() async {
+    final client = SupabaseClient.instance.client;
+    final currentUser = client.auth.currentUser;
+
+    if (currentUser == null) {
+      print('No authenticated user for real-time subscription');
+      return;
+    }
+
+    // Subscribe to changes in the users table for the current user
+    _realtimeChannel = client
+    .channel('public:users:user_id=eq.${currentUser.id}')
+    .onPostgresChanges(
+      event: supabase.PostgresChangeEvent.update,
+      schema: 'public',
+      table: 'users',
+      filter: supabase.PostgresChangeFilter(
+        type: supabase.PostgresChangeFilterType.eq,
+        column: 'user_id',
+        value: currentUser.id,
+      ),
+      callback: (payload) {
+        print('Received real-time update: $payload');
+        // Update the UI with the new profile data
+        if (mounted) {
+          setState(() {
+            _userData = {
+              ...?_userData,
+              ...payload.newRecord,
+            };
+          });
+        }
+      },
+    )
+    .subscribe();
+  }
+
+
 
   Future<void> _loadUserProfile() async {
     try {
@@ -111,8 +161,16 @@ class _ProfilePageState extends State<ProfilePage> {
           })
           .eq('user_id', user.id);
 
-      // Reload user data to reflect changes
-      await _loadUserProfile();
+      // Update local state to reflect the new profile picture immediately
+      if (mounted) {
+        setState(() {
+          _userData = {
+            ...?_userData,
+            'profile_picture': profilePictureUrl,
+            'profile_picture_url': profilePictureUrl,
+          };
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
