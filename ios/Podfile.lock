@@ -57,6 +57,11 @@ PODS:
   - device_info_plus (0.0.1):
     - Flutter
   - Flutter (1.0.0)
+  - flutter_image_compress_common (1.0.0):
+    - Flutter
+    - Mantle
+    - SDWebImage
+    - SDWebImageWebPCoder
   - geocoding_ios (1.0.5):
     - Flutter
   - Google-Maps-iOS-Utils (5.0.0):
@@ -74,6 +79,21 @@ PODS:
     - Flutter
   - iris_method_channel (0.0.1):
     - Flutter
+  - libwebp (1.5.0):
+    - libwebp/demux (= 1.5.0)
+    - libwebp/mux (= 1.5.0)
+    - libwebp/sharpyuv (= 1.5.0)
+    - libwebp/webp (= 1.5.0)
+  - libwebp/demux (1.5.0):
+    - libwebp/webp
+  - libwebp/mux (1.5.0):
+    - libwebp/demux
+  - libwebp/sharpyuv (1.5.0)
+  - libwebp/webp (1.5.0):
+    - libwebp/sharpyuv
+  - Mantle (2.2.0):
+    - Mantle/extobjc (= 2.2.0)
+  - Mantle/extobjc (2.2.0)
   - package_info_plus (0.4.5):
     - Flutter
   - path_provider_foundation (0.0.1):
@@ -81,6 +101,12 @@ PODS:
     - FlutterMacOS
   - permission_handler_apple (9.3.0):
     - Flutter
+  - SDWebImage (5.21.1):
+    - SDWebImage/Core (= 5.21.1)
+  - SDWebImage/Core (5.21.1)
+  - SDWebImageWebPCoder (0.14.6):
+    - libwebp (~> 1.0)
+    - SDWebImage/Core (~> 5.17)
   - shared_preferences_foundation (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -97,6 +123,7 @@ DEPENDENCIES:
   - connectivity_plus (from `.symlinks/plugins/connectivity_plus/ios`)
   - device_info_plus (from `.symlinks/plugins/device_info_plus/ios`)
   - Flutter (from `Flutter`)
+  - flutter_image_compress_common (from `.symlinks/plugins/flutter_image_compress_common/ios`)
   - geocoding_ios (from `.symlinks/plugins/geocoding_ios/ios`)
   - Google-Maps-iOS-Utils
   - google_maps_flutter_ios (from `.symlinks/plugins/google_maps_flutter_ios/ios`)
@@ -117,6 +144,10 @@ SPEC REPOS:
     - AgoraRtcEngine_iOS
     - Google-Maps-iOS-Utils
     - GoogleMaps
+    - libwebp
+    - Mantle
+    - SDWebImage
+    - SDWebImageWebPCoder
 
 EXTERNAL SOURCES:
   agora_rtc_engine:
@@ -133,6 +164,8 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/device_info_plus/ios"
   Flutter:
     :path: Flutter
+  flutter_image_compress_common:
+    :path: ".symlinks/plugins/flutter_image_compress_common/ios"
   geocoding_ios:
     :path: ".symlinks/plugins/geocoding_ios/ios"
   google_maps_flutter_ios:
@@ -165,15 +198,20 @@ SPEC CHECKSUMS:
   connectivity_plus: cb623214f4e1f6ef8fe7403d580fdad517d2f7dd
   device_info_plus: 71ffc6ab7634ade6267c7a93088ed7e4f74e5896
   Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
+  flutter_image_compress_common: 1697a328fd72bfb335507c6bca1a65fa5ad87df1
   geocoding_ios: bcbdaa6bddd7d3129c9bcb8acddc5d8778689768
   Google-Maps-iOS-Utils: 66d6de12be1ce6d3742a54661e7a79cb317a9321
   google_maps_flutter_ios: 0291eb2aa252298a769b04d075e4a9d747ff7264
   GoogleMaps: 8939898920281c649150e0af74aa291c60f2e77d
   image_picker_ios: 7fe1ff8e34c1790d6fff70a32484959f563a928a
   iris_method_channel: b9db2053dac3dc84e256c8792eff6f11323a53bd
+  libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
+  Mantle: c5aa8794a29a022dfbbfc9799af95f477a69b62d
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
   path_provider_foundation: 080d55be775b7414fd5a5ef3ac137b97b097e564
   permission_handler_apple: 4ed2196e43d0651e8ff7ca3483a069d469701f2d
+  SDWebImage: f29024626962457f3470184232766516dee8dfea
+  SDWebImageWebPCoder: e38c0a70396191361d60c092933e22c20d5b1380
   shared_preferences_foundation: 9e1978ff2562383bd5676f64ec4e9aa8fa06a6f7
   uni_links: ed8c961e47ed9ce42b6d91e1de8049e38a4b3152
   url_launcher_ios: 694010445543906933d732453a59da0a173ae33d

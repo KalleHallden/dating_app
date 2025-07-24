@@ -1,6 +1,8 @@
-// lib/pages/profile_page.dart
+import 'dart:io';
 import 'package:amplify_app/widgets/signout_button.dart';
+import 'package:amplify_app/widgets/profile_picture_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 
@@ -15,6 +17,8 @@ class _ProfilePageState extends State<ProfilePage> {
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
   String? _errorMessage;
+  XFile? _selectedImage;
+  bool _isUploadingImage = false;
 
   @override
   void initState() {
@@ -54,32 +58,188 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  Future<void> _handleImageSelected(XFile image) async {
+    setState(() {
+      _selectedImage = image;
+    });
+
+    // Upload the image immediately
+    await _uploadProfilePicture(image);
+  }
+
+  Future<void> _uploadProfilePicture(XFile image) async {
+    setState(() => _isUploadingImage = true);
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final user = client.auth.currentUser;
+      if (user == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Convert XFile to File for Supabase upload
+      final file = File(image.path);
+
+      // Upload to Supabase Storage
+      final storagePath = '${user.id}.jpg';
+      print('Uploading profile picture to: $storagePath');
+
+      // Upload the compressed image
+      await client.storage.from('profilepicture').upload(
+        storagePath,
+        file,
+        fileOptions: const supabase.FileOptions(
+          upsert: true, // Replace existing file
+          contentType: 'image/jpeg',
+        ),
+      );
+
+      // Get the public URL
+      final profilePictureUrl = client.storage
+          .from('profilepicture')
+          .getPublicUrl(storagePath);
+
+      print('Profile picture uploaded successfully! URL: $profilePictureUrl');
+
+      // Update the user record with new profile picture URL
+      await client
+          .from('users')
+          .update({
+            'profile_picture': profilePictureUrl,
+            'profile_picture_url': profilePictureUrl, // Update both fields if they exist
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', user.id);
+
+      // Reload user data to reflect changes
+      await _loadUserProfile();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile picture updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error uploading profile picture: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to upload profile picture: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploadingImage = false;
+          _selectedImage = null; // Clear selected image after upload
+        });
+      }
+    }
+  }
+
   Widget _buildProfileImage() {
     final profilePictureUrl = _userData?['profile_picture_url'] ?? 
                              _userData?['profile_picture'];
     
-    return AspectRatio(
-      aspectRatio: 4 / 5, // Instagram portrait format
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.grey[300],
-          image: profilePictureUrl != null && profilePictureUrl.isNotEmpty
-              ? DecorationImage(
-                  image: NetworkImage(profilePictureUrl),
-                  fit: BoxFit.cover,
-                )
-              : null,
+    return Stack(
+      children: [
+        AspectRatio(
+          aspectRatio: 4 / 5, // Instagram portrait format
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.grey[300],
+              image: (_selectedImage != null && _selectedImage!.path.isNotEmpty)
+                  ? DecorationImage(
+                      image: FileImage(File(_selectedImage!.path)),
+                      fit: BoxFit.cover,
+                    )
+                  : (profilePictureUrl != null && profilePictureUrl.isNotEmpty)
+                      ? DecorationImage(
+                          image: NetworkImage(profilePictureUrl),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
+            ),
+            child: (_selectedImage == null || _selectedImage!.path.isEmpty) && 
+                   (profilePictureUrl == null || profilePictureUrl.isEmpty)
+                ? const Center(
+                    child: Icon(
+                      Icons.person,
+                      size: 100,
+                      color: Colors.grey,
+                    ),
+                  )
+                : null,
+          ),
         ),
-        child: profilePictureUrl == null || profilePictureUrl.isEmpty
-            ? const Center(
-                child: Icon(
-                  Icons.person,
-                  size: 100,
-                  color: Colors.grey,
+        // Overlay for loading state
+        if (_isUploadingImage)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black54,
+              child: const Center(
+                child: CircularProgressIndicator(
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
                 ),
-              )
-            : null,
-      ),
+              ),
+            ),
+          ),
+        // Edit button overlay
+        Positioned(
+          bottom: 16,
+          right: 16,
+          child: FloatingActionButton(
+            mini: true,
+            backgroundColor: Theme.of(context).primaryColor,
+            onPressed: _isUploadingImage ? null : () {
+              // Show the profile picture picker in a dialog
+              showDialog(
+                context: context,
+                builder: (context) => Dialog(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Update Profile Picture',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        ProfilePicturePicker(
+                          currentImageUrl: profilePictureUrl,
+                          selectedImage: _selectedImage,
+                          onImageSelected: _handleImageSelected,
+                          size: 150,
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('Cancel'),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: const Icon(Icons.edit, color: Colors.white),
+          ),
+        ),
+      ],
     );
   }
 
