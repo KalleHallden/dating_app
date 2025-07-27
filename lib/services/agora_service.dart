@@ -16,6 +16,7 @@ class AgoraService {
   int? _currentUid;
   DateTime? _tokenExpiryTime;
   Timer? _tokenRenewalTimer;
+  String? _currentCallId; // Add this to track the database call ID
 
   // Callbacks
   Function(int uid, bool isSpeaking)? onUserSpeaking;
@@ -117,6 +118,8 @@ class AgoraService {
 
   Future<Map<String, dynamic>> _generateToken(String channelName, int uid) async {
     try {
+      print('Generating token for channel: $channelName, uid: $uid');
+      
       final response = await SupabaseClient.instance.client.functions.invoke(
         'generate-agora-token',
         body: {
@@ -126,18 +129,26 @@ class AgoraService {
         },
       );
 
+      print('Token generation response status: ${response.status}');
+      print('Token generation response data: ${response.data}');
+
       if (response.data == null) {
         throw Exception('Failed to generate token: No data returned');
       }
 
-      return response.data as Map<String, dynamic>;
+      final data = response.data as Map<String, dynamic>;
+      
+      // Validate response data
+      if (data['token'] == null || data['appId'] == null) {
+        throw Exception('Invalid token response: missing token or appId');
+      }
+
+      return data;
     } catch (e) {
       print('Error generating token: $e');
       throw Exception('Failed to generate token: $e');
     }
   }
-
-  String? _currentCallId; // Add this to track the database call ID
 
   Future<void> joinChannel({
     required String channelName,
@@ -150,6 +161,8 @@ class AgoraService {
     }
 
     try {
+      print('AgoraService: Joining channel $channelName with uid $uid');
+      
       _currentChannel = channelName;
       _currentUid = uid;
       _currentCallId = callId; // Store the call ID
@@ -157,16 +170,20 @@ class AgoraService {
       // Generate or use provided token
       Map<String, dynamic> tokenData;
       if (initialToken != null) {
+        print('AgoraService: Using provided token');
         // If token is provided, use it but still fetch app ID from server
         tokenData = await _generateToken(channelName, uid);
         _currentToken = initialToken;
       } else {
+        print('AgoraService: Generating new token');
         tokenData = await _generateToken(channelName, uid);
         _currentToken = tokenData['token'];
       }
 
       final appId = tokenData['appId'];
       final expiresIn = tokenData['expiresIn'] ?? 86400;
+
+      print('AgoraService: Got appId: $appId, token length: ${_currentToken?.length}');
 
       // Calculate token expiry time
       _tokenExpiryTime = DateTime.now().add(Duration(seconds: expiresIn));
@@ -176,12 +193,14 @@ class AgoraService {
 
       // Update app ID if needed
       if (_engine != null) {
+        print('AgoraService: Initializing engine with appId');
         await _engine!.initialize(RtcEngineContext(
           appId: appId,
         ));
       }
 
       // Configure audio settings
+      print('AgoraService: Configuring audio settings');
       await _engine!.setChannelProfile(ChannelProfileType.channelProfileCommunication);
       await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
       await _engine!.enableAudio();
@@ -196,6 +215,7 @@ class AgoraService {
       );
 
       // Join channel
+      print('AgoraService: Attempting to join channel with token');
       await _engine!.joinChannel(
         token: _currentToken!,
         channelId: channelName,
@@ -206,9 +226,13 @@ class AgoraService {
         ),
       );
 
-      print('Joining channel: $channelName with uid: $uid');
+      print('AgoraService: joinChannel called successfully');
     } catch (e) {
-      print('Error joining channel: $e');
+      print('AgoraService: Error joining channel: $e');
+      print('AgoraService: Error type: ${e.runtimeType}');
+      if (e is AgoraRtcException) {
+        print('AgoraService: Agora error code: ${e.code}');
+      }
       onError?.call('Failed to join call: $e');
       rethrow;
     }

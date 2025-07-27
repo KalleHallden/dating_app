@@ -247,9 +247,12 @@ class _MyAppState extends State<MyApp> {
                 
                 // Only wrap with CallNotificationOverlay if user is authenticated
                 // Use a key to force recreation when session changes
-                if (_session != null) {
+                // Fix: Check if session and user exist before accessing user.id
+                if (_session != null && _session?.user != null) {
+                  final userId = _session!.user.id;
+                  print('Main: Wrapping with CallNotificationOverlay for user $userId');
                   return CallNotificationOverlay(
-                    key: ValueKey(_session!.user.id),
+                    key: ValueKey('call-notification-$userId'),
                     child: screen,
                   );
                 }

@@ -7,6 +7,7 @@ import '../services/supabase_client.dart';
 import '../services/call_service.dart';
 import 'join_call_page.dart';
 import 'home_page.dart';
+import 'matched_users_call_page.dart';
 
 class WaitingCallPage extends StatefulWidget {
   final String callId;
@@ -115,14 +116,15 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     
     _timeoutTimer?.cancel();
     
-    // Navigate to the actual call page with callId
-    // This ensures proper token generation for this user
+    // Navigate to the matched users call page
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (context) => JoinChannelAudio(
-          channelID: widget.channelName,
+        builder: (context) => MatchedUsersCallPage(
           callId: widget.callId,
+          channelName: widget.channelName,
+          matchedUser: widget.matchedUser,
+          isInitiator: widget.isInitiator,
         ),
       ),
     );

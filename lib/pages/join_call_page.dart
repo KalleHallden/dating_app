@@ -52,6 +52,8 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
         _errorMessage = null;
       });
 
+      print('JoinChannelAudio: Initializing engine for channel ${widget.channelID}');
+
       // Set up callbacks
       _agoraService.onUserSpeaking = (uid, isSpeaking) {
         if (!_isDisposed) {
@@ -64,6 +66,7 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
       };
 
       _agoraService.onError = (message) {
+        print('JoinChannelAudio: Error from AgoraService: $message');
         if (!_isDisposed && mounted) {
           setState(() {
             _errorMessage = message;
@@ -72,7 +75,7 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
       };
 
       _agoraService.onUserJoined = (uid) {
-        print('User joined with uid: $uid');
+        print('JoinChannelAudio: User joined with uid: $uid');
       };
 
       _agoraService.onCallEnded = () {
@@ -95,6 +98,9 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
       // Generate a consistent UID from user ID
       // Use hashCode and ensure it fits in 32-bit integer range
       final uid = currentUser.id.hashCode.abs() % 2147483647;
+      
+      print('JoinChannelAudio: Generated UID $uid for user ${currentUser.id}');
+      print('JoinChannelAudio: Joining channel ${widget.channelID} with callId ${widget.callId}');
 
       // Join the channel with the call ID if provided
       await _agoraService.joinChannel(
@@ -110,7 +116,7 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
         });
       }
     } catch (e) {
-      print('Error initializing audio: $e');
+      print('JoinChannelAudio: Error initializing audio: $e');
       if (!_isDisposed && mounted) {
         setState(() {
           _errorMessage = 'Failed to connect to audio: $e';
