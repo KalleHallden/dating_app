@@ -10,6 +10,7 @@ import 'pages/call_page.dart';
 import 'providers/signup_provider.dart';
 import 'services/supabase_client.dart';
 import 'services/online_status_service.dart';
+import 'widgets/call_notification.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -240,10 +241,22 @@ class _MyAppState extends State<MyApp> {
                     initialMessage: 'Error: ${snapshot.error}',
                   );
                 }
-                return snapshot.data ?? const AuthScreen();
+                
+                // Wrap the app content with CallNotificationOverlay
+                final screen = snapshot.data ?? const AuthScreen();
+                
+                // Only wrap with CallNotificationOverlay if user is authenticated
+                // Use a key to force recreation when session changes
+                if (_session != null) {
+                  return CallNotificationOverlay(
+                    key: ValueKey(_session!.user.id),
+                    child: screen,
+                  );
+                }
+                
+                return screen;
               },
             ),
     );
   }
 }
-

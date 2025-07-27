@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 import 'view_profile_page.dart';
+import 'waiting_call_page.dart';
 
 class MatchesPage extends StatefulWidget {
   const MatchesPage({Key? key}) : super(key: key);
@@ -87,6 +88,7 @@ class _MatchesPageState extends State<MatchesPage> {
             'age': userResponse['age'] ?? 0,
             'profile_picture_url': userResponse['profile_picture_url'] ?? userResponse['profile_picture'],
             'is_online': userResponse['online'] ?? false,
+            'is_available': userResponse['is_available'] ?? false,
           });
         } catch (e) {
           print('Error fetching user data for $otherUserId: $e');
@@ -162,6 +164,7 @@ class _MatchesPageState extends State<MatchesPage> {
                     match['name'] = updatedUser['name'] ?? match['name'];
                     match['age'] = updatedUser['age'] ?? match['age'];
                     match['is_online'] = updatedUser['online'] ?? false;
+                    match['is_available'] = updatedUser['is_available'] ?? false;
                     
                     // Update profile picture URL - force refresh with timestamp
                     final newProfilePicture = updatedUser['profile_picture_url'] ?? updatedUser['profile_picture'];
@@ -197,6 +200,87 @@ class _MatchesPageState extends State<MatchesPage> {
     });
   }
 
+  Future<void> _initiateCall(Map<String, dynamic> match) async {
+    // Check if user is online and available
+    if (!match['is_online'] || !match['is_available']) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${match['name']} is not available for calls right now'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final currentUser = client.auth.currentUser;
+      
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Call the Supabase function to initiate the call
+      final response = await client.functions.invoke(
+        'initiate-call',
+        body: {
+          'called_id': match['user_id'],
+        },
+      );
+
+      // Close loading dialog
+      if (mounted) {
+        Navigator.pop(context);
+      }
+
+      if (response.status != 200) {
+        throw Exception(response.data['error'] ?? 'Failed to initiate call');
+      }
+
+      final callData = response.data;
+      
+      // Navigate to waiting call page
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => WaitingCallPage(
+              callId: callData['id'],
+              channelName: callData['channel_name'],
+              matchedUser: match,
+              isInitiator: true,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error initiating call: $e');
+      
+      // Close loading dialog if still open
+      if (mounted && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start call: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -228,6 +312,116 @@ class _MatchesPageState extends State<MatchesPage> {
         ],
       ),
     );
+  }
+
+  Widget _buildMatchTile(Map<String, dynamic> match) {
+    final isAvailableForCall = match['is_online'] && match['is_available'];
+    
+    return ListTile(
+      key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
+      onTap: () => _navigateToProfile(match),
+      leading: Stack(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: Colors.grey[300],
+            backgroundImage: match['profile_picture_url'] != null && 
+                           match['profile_picture_url'].isNotEmpty
+                ? NetworkImage(match['profile_picture_url'])
+                : null,
+            child: match['profile_picture_url'] == null || 
+                   match['profile_picture_url'].isEmpty
+                ? Text(
+                    match['name'].isNotEmpty ? match['name'][0].toUpperCase() : '?',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
+                    ),
+                  )
+                : null,
+          ),
+          // Online status indicator
+          Positioned(
+            bottom: 0,
+            right: 0,
+            child: Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                color: match['is_online'] ? Colors.green : Colors.grey,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  width: 2,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      title: Text(
+        '${match['name']}, ${match['age']}',
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          fontSize: 16,
+        ),
+      ),
+      subtitle: Text(
+        _getLastMessageText(match['last_message_at']),
+        style: TextStyle(
+          color: Colors.grey[600],
+          fontSize: 14,
+        ),
+      ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Call button
+          IconButton(
+            onPressed: isAvailableForCall ? () => _initiateCall(match) : null,
+            icon: Icon(
+              Icons.phone,
+              color: isAvailableForCall ? Colors.green : Colors.grey,
+            ),
+            tooltip: isAvailableForCall 
+                ? 'Call ${match['name']}' 
+                : '${match['name']} is not available',
+          ),
+          Icon(
+            Icons.arrow_forward_ios,
+            size: 16,
+            color: Colors.grey[400],
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _getLastMessageText(dynamic lastMessageAt) {
+    if (lastMessageAt == null) {
+      return 'Start a conversation';
+    }
+    
+    DateTime messageTime;
+    if (lastMessageAt is String) {
+      messageTime = DateTime.parse(lastMessageAt);
+    } else {
+      return 'Start a conversation';
+    }
+    
+    final now = DateTime.now();
+    final difference = now.difference(messageTime);
+    
+    if (difference.inDays > 0) {
+      return '${difference.inDays}d ago';
+    } else if (difference.inHours > 0) {
+      return '${difference.inHours}h ago';
+    } else if (difference.inMinutes > 0) {
+      return '${difference.inMinutes}m ago';
+    } else {
+      return 'Just now';
+    }
   }
 
   @override
@@ -277,21 +471,7 @@ class _MatchesPageState extends State<MatchesPage> {
             : ListView.separated(
                 itemCount: _matches.length,
                 separatorBuilder: (context, index) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final match = _matches[index];
-                  return MatchListItem(
-                    key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
-                    matchId: match['match_id'],
-                    name: match['name'],
-                    age: match['age'],
-                    profilePictureUrl: match['profile_picture_url'],
-                    isOnline: match['is_online'],
-                    lastMessageAt: match['last_message_at'] != null
-                        ? DateTime.parse(match['last_message_at'])
-                        : null,
-                    onTap: () => _navigateToProfile(match),
-                  );
-                },
+                itemBuilder: (context, index) => _buildMatchTile(_matches[index]),
               ),
       ),
     );

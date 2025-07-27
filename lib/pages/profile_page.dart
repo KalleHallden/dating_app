@@ -1,6 +1,8 @@
 import 'dart:io';
 import 'package:amplify_app/widgets/signout_button.dart';
 import 'package:amplify_app/widgets/profile_picture_picker.dart';
+import 'package:amplify_app/widgets/location_picker.dart';
+import 'package:amplify_app/models/UserLocation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -23,10 +25,26 @@ class _ProfilePageState extends State<ProfilePage> {
   
   // Add a key to force rebuild of profile image
   Key _profileImageKey = UniqueKey();
+  
+  // Edit mode state
+  bool _isEditMode = false;
+  
+  // Edit mode controllers
+  late TextEditingController _nameController;
+  late TextEditingController _aboutMeController;
+  String? _editGender;
+  String? _editGenderPreference;
+  UserLocation? _editLocation;
+  int _editMinAge = 18;
+  int _editMaxAge = 100;
+  XFile? _editProfileImage;
+  bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
+    _nameController = TextEditingController();
+    _aboutMeController = TextEditingController();
     _loadUserProfile();
     _setupRealtimeSubscription();
   }
@@ -35,6 +53,8 @@ class _ProfilePageState extends State<ProfilePage> {
   void dispose() {
     // Clean up the real-time subscription
     _realtimeChannel?.unsubscribe();
+    _nameController.dispose();
+    _aboutMeController.dispose();
     super.dispose();
   }
 
@@ -65,7 +85,7 @@ class _ProfilePageState extends State<ProfilePage> {
           callback: (payload) {
             print('Received real-time update: $payload');
             // Update the UI with the new profile data
-            if (mounted) {
+            if (mounted && !_isEditMode) {
               setState(() {
                 _userData = {
                   ...?_userData,
@@ -104,6 +124,8 @@ class _ProfilePageState extends State<ProfilePage> {
       setState(() {
         _userData = response;
         _isLoading = false;
+        // Initialize edit mode values
+        _initializeEditValues();
       });
     } catch (e) {
       print('Error loading user profile: $e');
@@ -114,18 +136,308 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _handleImageSelected(XFile image) async {
-    setState(() {
-      _selectedImage = image;
-    });
-
-    // Upload the image immediately
-    await _uploadProfilePicture(image);
+  void _initializeEditValues() {
+    if (_userData == null) return;
+    
+    _nameController.text = _userData!['name'] ?? '';
+    _aboutMeController.text = _userData!['about_me'] ?? '';
+    _editGender = _userData!['gender'];
+    _editGenderPreference = _userData!['gender_preference'];
+    
+    // Parse age preference
+    final agePref = _userData!['age_preference'];
+    if (agePref != null && agePref is Map) {
+      _editMinAge = agePref['min'] ?? 18;
+      _editMaxAge = agePref['max'] ?? 100;
+    }
+    
+    // Parse location
+    final location = _userData!['location'];
+    if (location != null && location is String) {
+      final coords = location.replaceAll('(', '').replaceAll(')', '').split(',');
+      if (coords.length == 2) {
+        final lat = double.tryParse(coords[0]);
+        final long = double.tryParse(coords[1]);
+        if (lat != null && long != null) {
+          _editLocation = UserLocation(lat: lat, long: long);
+        }
+      }
+    }
   }
 
-  Future<void> _uploadProfilePicture(XFile image) async {
-    setState(() => _isUploadingImage = true);
+  void _enterEditMode() {
+    setState(() {
+      _isEditMode = true;
+      _editProfileImage = null;
+      _initializeEditValues();
+    });
+  }
 
+  void _cancelEditMode() {
+    setState(() {
+      _isEditMode = false;
+      _editProfileImage = null;
+      _selectedImage = null;
+      // Reset values
+      _initializeEditValues();
+    });
+  }
+
+  Future<void> _saveProfile() async {
+    setState(() => _isSaving = true);
+
+    try {
+      final client = SupabaseClient.instance.client;
+      final currentUser = client.auth.currentUser;
+      
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
+
+      // Prepare update data
+      final Map<String, dynamic> updateData = {
+        'name': _nameController.text.trim(),
+        'about_me': _aboutMeController.text.trim(),
+        'gender': _editGender,
+        'gender_preference': _editGenderPreference,
+        'age_preference': {
+          'min': _editMinAge,
+          'max': _editMaxAge,
+        },
+        'updated_at': DateTime.now().toIso8601String(),
+      };
+
+      // Add location if changed
+      if (_editLocation != null) {
+        updateData['location'] = '(${_editLocation!.lat},${_editLocation!.long})';
+      }
+
+      // Upload new profile picture if selected
+      if (_editProfileImage != null) {
+        final profilePictureUrl = await _uploadProfilePicture(_editProfileImage!);
+        updateData['profile_picture'] = profilePictureUrl;
+        updateData['profile_picture_url'] = profilePictureUrl;
+      }
+
+      // Update user record
+      await client
+          .from('users')
+          .update(updateData)
+          .eq('user_id', currentUser.id);
+
+      // Update local data
+      setState(() {
+        _userData = {
+          ...?_userData,
+          ...updateData,
+        };
+        _isEditMode = false;
+        _editProfileImage = null;
+        _selectedImage = null;
+        // Force rebuild of profile image
+        _profileImageKey = UniqueKey();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error saving profile: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to save profile: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
+    }
+  }
+
+  Future<void> _pickImageForEdit() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      
+      // Pick image directly without using ProfilePicturePicker widget
+      final XFile? image = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 2048,
+        maxHeight: 2048,
+        imageQuality: 90,
+      );
+
+      if (image == null) return;
+
+      // Update state with the new image
+      if (mounted) {
+        setState(() {
+          _editProfileImage = image;
+          _profileImageKey = UniqueKey();
+        });
+      }
+    } catch (e) {
+      print('Error picking image: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error selecting image. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showEditProfilePictureDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false, // Prevent accidental dismissal
+      builder: (BuildContext dialogContext) {
+        return WillPopScope(
+          onWillPop: () async => true,
+          child: Dialog(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Update Profile Picture',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Show current or selected image
+                  Container(
+                    width: 150,
+                    height: 150,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Colors.grey[300],
+                      image: _getEditProfileImageDecoration(),
+                    ),
+                    child: _getEditProfileImageChild(),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      // Close dialog first
+                      Navigator.of(dialogContext).pop();
+                      // Then pick image
+                      await _pickImageForEdit();
+                    },
+                    icon: const Icon(Icons.camera_alt),
+                    label: Text(_editProfileImage == null ? 'Select Photo' : 'Change Photo'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                    },
+                    child: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  DecorationImage? _getEditProfileImageDecoration() {
+    if (_editProfileImage != null) {
+      return DecorationImage(
+        image: FileImage(File(_editProfileImage!.path)),
+        fit: BoxFit.cover,
+      );
+    }
+    
+    final profilePictureUrl = _userData?['profile_picture_url'] ?? _userData?['profile_picture'];
+    if (profilePictureUrl != null && profilePictureUrl.isNotEmpty) {
+      return DecorationImage(
+        image: NetworkImage(profilePictureUrl),
+        fit: BoxFit.cover,
+      );
+    }
+    
+    return null;
+  }
+
+  Widget? _getEditProfileImageChild() {
+    if (_editProfileImage == null) {
+      final profilePictureUrl = _userData?['profile_picture_url'] ?? _userData?['profile_picture'];
+      if (profilePictureUrl == null || profilePictureUrl.isEmpty) {
+        return const Icon(
+          Icons.person,
+          size: 60,
+          color: Colors.grey,
+        );
+      }
+    }
+    return null;
+  }
+
+  Future<void> _handleImmediateImageSelected(XFile image) async {
+    setState(() {
+      _selectedImage = image;
+      _isUploadingImage = true;
+    });
+
+    try {
+      final profilePictureUrl = await _uploadProfilePicture(image);
+      
+      // Update local data immediately
+      if (mounted) {
+        setState(() {
+          _userData = {
+            ...?_userData,
+            'profile_picture': profilePictureUrl,
+            'profile_picture_url': profilePictureUrl,
+          };
+          _selectedImage = null;
+          _isUploadingImage = false;
+          // Force rebuild of profile image
+          _profileImageKey = UniqueKey();
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile picture updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error uploading profile picture: $e');
+      if (mounted) {
+        setState(() {
+          _selectedImage = null;
+          _isUploadingImage = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to upload profile picture: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<String> _uploadProfilePicture(XFile image) async {
     try {
       final client = SupabaseClient.instance.client;
       final user = client.auth.currentUser;
@@ -156,65 +468,33 @@ class _ProfilePageState extends State<ProfilePage> {
 
       print('Profile picture uploaded successfully! URL: $profilePictureUrl');
 
-      // Update the user record with new profile picture URL
-      await client
-          .from('users')
-          .update({
-            'profile_picture': profilePictureUrl,
-            'profile_picture_url': profilePictureUrl, // Update both fields if they exist
-            'updated_at': DateTime.now().toIso8601String(),
-          })
-          .eq('user_id', user.id);
-
-      // Force immediate UI update
-      if (mounted) {
-        setState(() {
-          _userData = {
-            ...?_userData,
-            'profile_picture': profilePictureUrl,
-            'profile_picture_url': profilePictureUrl,
-          };
-          // Clear selected image
-          _selectedImage = null;
-          // Force rebuild of profile image
-          _profileImageKey = UniqueKey();
-        });
+      // Only update database if not in edit mode (edit mode updates on save)
+      if (!_isEditMode) {
+        await client
+            .from('users')
+            .update({
+              'profile_picture': profilePictureUrl,
+              'profile_picture_url': profilePictureUrl,
+              'updated_at': DateTime.now().toIso8601String(),
+            })
+            .eq('user_id', user.id);
       }
 
-      // Reload profile data to ensure consistency
-      await _loadUserProfile();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Profile picture updated successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
+      return profilePictureUrl;
     } catch (e) {
       print('Error uploading profile picture: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to upload profile picture: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isUploadingImage = false;
-          _selectedImage = null;
-        });
-      }
+      throw e;
     }
   }
 
   Widget _buildProfileImage() {
     final profilePictureUrl = _userData?['profile_picture_url'] ?? 
                              _userData?['profile_picture'];
+    
+    // Determine which image to show
+    final imageToShow = _isEditMode && _editProfileImage != null 
+        ? _editProfileImage 
+        : _selectedImage;
     
     return Stack(
       key: _profileImageKey, // Force rebuild when key changes
@@ -224,9 +504,9 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Container(
             decoration: BoxDecoration(
               color: Colors.grey[300],
-              image: (_selectedImage != null && _selectedImage!.path.isNotEmpty)
+              image: (imageToShow != null && imageToShow.path.isNotEmpty)
                   ? DecorationImage(
-                      image: FileImage(File(_selectedImage!.path)),
+                      image: FileImage(File(imageToShow.path)),
                       fit: BoxFit.cover,
                     )
                   : (profilePictureUrl != null && profilePictureUrl.isNotEmpty)
@@ -239,7 +519,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         )
                       : null,
             ),
-            child: (_selectedImage == null || _selectedImage!.path.isEmpty) && 
+            child: (imageToShow == null || imageToShow.path.isEmpty) && 
                    (profilePictureUrl == null || profilePictureUrl.isEmpty)
                 ? const Center(
                     child: Icon(
@@ -263,56 +543,25 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ),
           ),
-        // Edit button overlay
-        Positioned(
-          bottom: 16,
-          right: 16,
-          child: FloatingActionButton(
-            mini: true,
-            backgroundColor: Theme.of(context).primaryColor,
-            onPressed: _isUploadingImage ? null : () {
-              // Show the profile picture picker in a dialog
-              showDialog(
-                context: context,
-                builder: (context) => Dialog(
-                  child: Padding(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Update Profile Picture',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        ProfilePicturePicker(
-                          currentImageUrl: profilePictureUrl,
-                          selectedImage: _selectedImage,
-                          onImageSelected: _handleImageSelected,
-                          size: 150,
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                          children: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context),
-                              child: const Text('Cancel'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+        // Edit mode profile picture button
+        if (_isEditMode)
+          Positioned.fill(
+            child: Container(
+              color: Colors.black26,
+              child: Center(
+                child: TextButton(
+                  onPressed: _isUploadingImage ? null : _showEditProfilePictureDialog,
+                  style: TextButton.styleFrom(
+                    backgroundColor: Colors.black54,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   ),
+                  child: const Text('Update Profile Picture'),
                 ),
-              );
-            },
-            child: const Icon(Icons.edit, color: Colors.white),
+              ),
+            ),
           ),
-        ),
+        // View mode edit button - removed as per requirements
       ],
     );
   }
@@ -327,30 +576,37 @@ class _ProfilePageState extends State<ProfilePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Name and Age
+          // Name and Age with Edit button
           Row(
             children: [
               Expanded(
-                child: Text(
-                  '$name, $age',
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                  ),
+                child: _isEditMode
+                    ? TextField(
+                        controller: _nameController,
+                        decoration: InputDecoration(
+                          labelText: 'Name',
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      )
+                    : Text(
+                        '$name, $age',
+                        style: const TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+              ),
+              if (!_isEditMode)
+                IconButton(
+                  icon: const Icon(Icons.edit),
+                  onPressed: _enterEditMode,
                 ),
-              ),
-              // Edit button
-              IconButton(
-                icon: const Icon(Icons.edit),
-                onPressed: () {
-                  // TODO: Navigate to edit profile page
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Edit profile coming soon!'),
-                    ),
-                  );
-                },
-              ),
             ],
           ),
           const SizedBox(height: 20),
@@ -365,30 +621,214 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            aboutMe,
-            style: const TextStyle(
-              fontSize: 16,
-              height: 1.5,
-            ),
-          ),
+          _isEditMode
+              ? TextField(
+                  controller: _aboutMeController,
+                  decoration: InputDecoration(
+                    hintText: 'Tell us about yourself...',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  maxLines: 4,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    height: 1.5,
+                  ),
+                )
+              : Text(
+                  aboutMe,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    height: 1.5,
+                  ),
+                ),
           const SizedBox(height: 30),
           
-          // Additional Info
-          _buildInfoRow(Icons.location_on, _formatLocation()),
-          const SizedBox(height: 12),
-          _buildInfoRow(Icons.favorite, _formatPreferences()),
+          // Location Section
+          _isEditMode
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Location',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ElevatedButton.icon(
+                      onPressed: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LocationPicker(
+                              onLocationSelected: (location) {
+                                setState(() => _editLocation = location);
+                              },
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.location_on),
+                      label: Text(
+                        _editLocation != null
+                            ? 'Location set (${_editLocation!.lat.toStringAsFixed(2)}, ${_editLocation!.long.toStringAsFixed(2)})'
+                            : 'Set Location',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size(double.infinity, 48),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                )
+              : _buildInfoRow(Icons.location_on, _formatLocation()),
+          
+          if (!_isEditMode) const SizedBox(height: 12),
+          
+          // Looking For Section
+          _isEditMode
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Looking For',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // Gender preference dropdown
+                    DropdownButtonFormField<String>(
+                      value: _editGenderPreference,
+                      decoration: InputDecoration(
+                        labelText: 'Gender Preference',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: ['Man', 'Woman', 'Man or Woman', 'Other']
+                          .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                          .toList(),
+                      onChanged: (value) => setState(() => _editGenderPreference = value),
+                    ),
+                    const SizedBox(height: 16),
+                    // Age range
+                    const Text(
+                      'Age Range',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            decoration: InputDecoration(
+                              labelText: 'Min Age',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            keyboardType: TextInputType.number,
+                            controller: TextEditingController(text: _editMinAge.toString()),
+                            onChanged: (value) {
+                              final age = int.tryParse(value);
+                              if (age != null && age >= 18 && age <= 100) {
+                                setState(() => _editMinAge = age);
+                              }
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: TextField(
+                            decoration: InputDecoration(
+                              labelText: 'Max Age',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            keyboardType: TextInputType.number,
+                            controller: TextEditingController(text: _editMaxAge.toString()),
+                            onChanged: (value) {
+                              final age = int.tryParse(value);
+                              if (age != null && age >= 18 && age <= 100) {
+                                setState(() => _editMaxAge = age);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    // Gender dropdown
+                    DropdownButtonFormField<String>(
+                      value: _editGender,
+                      decoration: InputDecoration(
+                        labelText: 'Your Gender',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      items: ['Man', 'Woman', 'Other']
+                          .map((g) => DropdownMenuItem(value: g, child: Text(g)))
+                          .toList(),
+                      onChanged: (value) => setState(() => _editGender = value),
+                    ),
+                  ],
+                )
+              : _buildInfoRow(Icons.favorite, _formatPreferences()),
+          
           const SizedBox(height: 30),
           
-          // Sign Out Button
-          Center(
-            child: SignoutButton(
-              text: 'Sign Out',
-              showIcon: true,
-              backgroundColor: Colors.red,
-              textColor: Colors.white,
+          // Edit mode buttons
+          if (_isEditMode)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _isSaving ? null : _cancelEditMode,
+                    style: OutlinedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _isSaving ? null : _saveProfile,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: _isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text('Save'),
+                  ),
+                ),
+              ],
+            )
+          else
+            // Sign Out Button
+            Center(
+              child: SignoutButton(
+                text: 'Sign Out',
+                showIcon: true,
+                backgroundColor: Colors.red,
+                textColor: Colors.white,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -484,7 +924,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Profile'),
+        title: Text(_isEditMode ? 'Edit Profile' : 'My Profile'),
         elevation: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.black,
