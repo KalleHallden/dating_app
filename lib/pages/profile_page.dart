@@ -20,6 +20,9 @@ class _ProfilePageState extends State<ProfilePage> {
   XFile? _selectedImage;
   bool _isUploadingImage = false;
   supabase.RealtimeChannel? _realtimeChannel;
+  
+  // Add a key to force rebuild of profile image
+  Key _profileImageKey = UniqueKey();
 
   @override
   void initState() {
@@ -31,9 +34,7 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void dispose() {
     // Clean up the real-time subscription
-    if (_realtimeChannel != null) {
-      SupabaseClient.instance.client.removeChannel(_realtimeChannel!);
-    }
+    _realtimeChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -46,35 +47,40 @@ class _ProfilePageState extends State<ProfilePage> {
       return;
     }
 
+    // Create a unique channel name
+    final channelName = 'profile-updates-${currentUser.id}-${DateTime.now().millisecondsSinceEpoch}';
+
     // Subscribe to changes in the users table for the current user
     _realtimeChannel = client
-    .channel('public:users:user_id=eq.${currentUser.id}')
-    .onPostgresChanges(
-      event: supabase.PostgresChangeEvent.update,
-      schema: 'public',
-      table: 'users',
-      filter: supabase.PostgresChangeFilter(
-        type: supabase.PostgresChangeFilterType.eq,
-        column: 'user_id',
-        value: currentUser.id,
-      ),
-      callback: (payload) {
-        print('Received real-time update: $payload');
-        // Update the UI with the new profile data
-        if (mounted) {
-          setState(() {
-            _userData = {
-              ...?_userData,
-              ...payload.newRecord,
-            };
-          });
-        }
-      },
-    )
-    .subscribe();
+        .channel(channelName)
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'users',
+          filter: supabase.PostgresChangeFilter(
+            type: supabase.PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: currentUser.id,
+          ),
+          callback: (payload) {
+            print('Received real-time update: $payload');
+            // Update the UI with the new profile data
+            if (mounted) {
+              setState(() {
+                _userData = {
+                  ...?_userData,
+                  ...payload.newRecord,
+                };
+                // Force rebuild of profile image by changing key
+                _profileImageKey = UniqueKey();
+              });
+            }
+          },
+        )
+        .subscribe();
+
+    print('Subscribed to real-time updates on channel: $channelName');
   }
-
-
 
   Future<void> _loadUserProfile() async {
     try {
@@ -144,10 +150,9 @@ class _ProfilePageState extends State<ProfilePage> {
         ),
       );
 
-      // Get the public URL
-      final profilePictureUrl = client.storage
-          .from('profilepicture')
-          .getPublicUrl(storagePath);
+      // Get the public URL with a timestamp to force refresh
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final profilePictureUrl = '${client.storage.from('profilepicture').getPublicUrl(storagePath)}?t=$timestamp';
 
       print('Profile picture uploaded successfully! URL: $profilePictureUrl');
 
@@ -161,7 +166,7 @@ class _ProfilePageState extends State<ProfilePage> {
           })
           .eq('user_id', user.id);
 
-      // Update local state to reflect the new profile picture immediately
+      // Force immediate UI update
       if (mounted) {
         setState(() {
           _userData = {
@@ -169,8 +174,15 @@ class _ProfilePageState extends State<ProfilePage> {
             'profile_picture': profilePictureUrl,
             'profile_picture_url': profilePictureUrl,
           };
+          // Clear selected image
+          _selectedImage = null;
+          // Force rebuild of profile image
+          _profileImageKey = UniqueKey();
         });
       }
+
+      // Reload profile data to ensure consistency
+      await _loadUserProfile();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -194,7 +206,7 @@ class _ProfilePageState extends State<ProfilePage> {
       if (mounted) {
         setState(() {
           _isUploadingImage = false;
-          _selectedImage = null; // Clear selected image after upload
+          _selectedImage = null;
         });
       }
     }
@@ -205,6 +217,7 @@ class _ProfilePageState extends State<ProfilePage> {
                              _userData?['profile_picture'];
     
     return Stack(
+      key: _profileImageKey, // Force rebuild when key changes
       children: [
         AspectRatio(
           aspectRatio: 4 / 5, // Instagram portrait format
@@ -220,6 +233,9 @@ class _ProfilePageState extends State<ProfilePage> {
                       ? DecorationImage(
                           image: NetworkImage(profilePictureUrl),
                           fit: BoxFit.cover,
+                          onError: (exception, stackTrace) {
+                            print('Error loading profile picture: $exception');
+                          },
                         )
                       : null,
             ),

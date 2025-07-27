@@ -17,8 +17,11 @@ class _MatchesPageState extends State<MatchesPage> {
   bool _isLoading = true;
   String? _errorMessage;
   supabase.RealtimeChannel? _matchesChannel;
-  supabase.RealtimeChannel? _usersStatusChannel;
+  supabase.RealtimeChannel? _usersUpdateChannel;
   Set<String> _matchedUserIds = {};
+  
+  // Add a key map to force rebuild of specific match items
+  final Map<String, Key> _matchKeys = {};
 
   @override
   void initState() {
@@ -30,7 +33,7 @@ class _MatchesPageState extends State<MatchesPage> {
   @override
   void dispose() {
     _matchesChannel?.unsubscribe();
-    _usersStatusChannel?.unsubscribe();
+    _usersUpdateChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -64,6 +67,9 @@ class _MatchesPageState extends State<MatchesPage> {
         final otherUserId = isUser1 ? match['user2_id'] : match['user1_id'];
         userIds.add(otherUserId);
         
+        // Generate a unique key for this match
+        _matchKeys[match['id']] = UniqueKey();
+        
         // Fetch the other user's data
         try {
           final userResponse = await client
@@ -93,8 +99,8 @@ class _MatchesPageState extends State<MatchesPage> {
         _isLoading = false;
       });
       
-      // Subscribe to user status updates for all matched users
-      _subscribeToUserStatusUpdates();
+      // Subscribe to user updates for all matched users
+      _subscribeToUserUpdates();
     } catch (e) {
       print('Error loading matches: $e');
       setState(() {
@@ -124,18 +130,18 @@ class _MatchesPageState extends State<MatchesPage> {
         .subscribe();
   }
 
-  void _subscribeToUserStatusUpdates() {
+  void _subscribeToUserUpdates() {
     // Unsubscribe from previous channel if exists
-    _usersStatusChannel?.unsubscribe();
+    _usersUpdateChannel?.unsubscribe();
     
     if (_matchedUserIds.isEmpty) return;
     
     final client = SupabaseClient.instance.client;
     
     // Create a unique channel name
-    final channelName = 'users-status-${DateTime.now().millisecondsSinceEpoch}';
+    final channelName = 'users-updates-matches-${DateTime.now().millisecondsSinceEpoch}';
     
-    _usersStatusChannel = client
+    _usersUpdateChannel = client
         .channel(channelName)
         .onPostgresChanges(
           event: supabase.PostgresChangeEvent.update,
@@ -147,10 +153,23 @@ class _MatchesPageState extends State<MatchesPage> {
             
             // Check if this user is in our matches
             if (_matchedUserIds.contains(userId)) {
+              print('Matched user updated: $userId');
+              
               setState(() {
                 _matches = _matches.map((match) {
                   if (match['user_id'] == userId) {
+                    // Update the match data with new user info
+                    match['name'] = updatedUser['name'] ?? match['name'];
+                    match['age'] = updatedUser['age'] ?? match['age'];
                     match['is_online'] = updatedUser['online'] ?? false;
+                    
+                    // Update profile picture URL - force refresh with timestamp
+                    final newProfilePicture = updatedUser['profile_picture_url'] ?? updatedUser['profile_picture'];
+                    if (newProfilePicture != null && newProfilePicture != match['profile_picture_url']) {
+                      match['profile_picture_url'] = newProfilePicture;
+                      // Force rebuild of this specific match item
+                      _matchKeys[match['match_id']] = UniqueKey();
+                    }
                   }
                   return match;
                 }).toList();
@@ -159,6 +178,8 @@ class _MatchesPageState extends State<MatchesPage> {
           },
         )
         .subscribe();
+    
+    print('Subscribed to user updates for ${_matchedUserIds.length} matched users');
   }
 
   void _navigateToProfile(Map<String, dynamic> match) {
@@ -170,7 +191,10 @@ class _MatchesPageState extends State<MatchesPage> {
           userName: match['name'],
         ),
       ),
-    );
+    ).then((_) {
+      // Reload matches when returning from profile page
+      _loadMatches();
+    });
   }
 
   Widget _buildEmptyState() {
@@ -256,6 +280,7 @@ class _MatchesPageState extends State<MatchesPage> {
                 itemBuilder: (context, index) {
                   final match = _matches[index];
                   return MatchListItem(
+                    key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
                     matchId: match['match_id'],
                     name: match['name'],
                     age: match['age'],
