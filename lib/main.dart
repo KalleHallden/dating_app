@@ -10,6 +10,7 @@ import 'pages/call_page.dart';
 import 'providers/signup_provider.dart';
 import 'services/supabase_client.dart';
 import 'services/online_status_service.dart';
+import 'services/call_notification_service.dart';
 import 'widgets/call_notification.dart';
 
 Future<void> main() async {
@@ -17,8 +18,11 @@ Future<void> main() async {
   // Ensure Supabase is initialized with the correct redirect URL and authFlowType
   await SupabaseClient.initialize();
 
-  // ← NEW: kick off your online‐status service on cold start
+  // Initialize services
   await OnlineStatusService().initialize();
+  
+  // Initialize the global call notification service
+  await CallNotificationService().initialize();
 
   runApp(
     ChangeNotifierProvider<SignupProvider>(
@@ -35,13 +39,15 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   supabase.Session? _session; // Use a nullable Session object
   bool _isCheckingAuth = true; // Add loading state
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    
     // Initialize session listener from Supabase
     SupabaseClient.instance.client.auth.onAuthStateChange.listen((data) {
       final event = data.event;
@@ -52,8 +58,11 @@ class _MyAppState extends State<MyApp> {
       // Update online status based on auth state
       if (event == supabase.AuthChangeEvent.signedIn && session != null) {
         OnlineStatusService().initialize();
+        // Re-initialize call notification service for new user
+        CallNotificationService().initialize();
       } else if (event == supabase.AuthChangeEvent.signedOut) {
         OnlineStatusService().dispose();
+        // No need to dispose CallNotificationService - it handles auth changes internally
       }
       
       if (mounted) {
@@ -77,6 +86,22 @@ class _MyAppState extends State<MyApp> {
     final session = SupabaseClient.instance.client.auth.currentSession;
     if (session != null) {
       OnlineStatusService().initialize();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-initialize call notification service when app resumes
+      // This ensures subscriptions are re-established
+      print('App resumed - re-initializing call notification service');
+      CallNotificationService().initialize();
     }
   }
 
@@ -245,14 +270,11 @@ class _MyAppState extends State<MyApp> {
                 // Wrap the app content with CallNotificationOverlay
                 final screen = snapshot.data ?? const AuthScreen();
                 
-                // Only wrap with CallNotificationOverlay if user is authenticated
-                // Use a key to force recreation when session changes
-                // Fix: Check if session and user exist before accessing user.id
+                // Always wrap with CallNotificationOverlay if user is authenticated
                 if (_session != null && _session?.user != null) {
                   final userId = _session!.user.id;
                   print('Main: Wrapping with CallNotificationOverlay for user $userId');
                   return CallNotificationOverlay(
-                    key: ValueKey('call-notification-$userId'),
                     child: screen,
                   );
                 }
