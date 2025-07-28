@@ -32,6 +32,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   supabase.RealtimeChannel? _callStatusChannel;
   bool _isCallActive = false;
   bool _isLeavingCall = false;
+  bool _hasNavigated = false; // Add flag to prevent multiple navigations
   String _callStatus = 'pending';
   
   // Animation controller for pulsing effect
@@ -48,6 +49,17 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     _initializeAnimations();
     _subscribeToCallStatus();
     _startTimeoutTimer();
+    
+    // If not initiator (receiving a call), and we're on this page, 
+    // it means we already accepted, so navigate to the call page
+    if (!widget.isInitiator) {
+      // Small delay to ensure everything is set up
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && !_hasNavigated) {
+          _navigateToCallPage();
+        }
+      });
+    }
   }
 
   @override
@@ -75,7 +87,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
 
   void _startTimeoutTimer() {
     _timeoutTimer = Timer(_callTimeout, () {
-      if (!_isCallActive && mounted) {
+      if (!_isCallActive && mounted && !_hasNavigated) {
         _handleCallTimeout();
       }
     });
@@ -85,10 +97,13 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     _callStatusChannel = _callService.subscribeToCallUpdates(
       widget.callId,
       onUpdate: (callData) {
-        if (!mounted) return;
+        if (!mounted || _hasNavigated) return;
+        
+        final newStatus = callData['status'] ?? 'pending';
+        print('WaitingCallPage: Call status updated to: $newStatus');
         
         setState(() {
-          _callStatus = callData['status'] ?? 'pending';
+          _callStatus = newStatus;
         });
         
         // Handle different call statuses
@@ -100,6 +115,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
             _handleCallDeclined();
             break;
           case 'ended':
+          case 'completed':
             _handleCallEnded();
             break;
         }
@@ -108,7 +124,8 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   }
 
   void _handleCallAccepted() {
-    if (_isCallActive) return;
+    print('WaitingCallPage: Call accepted, navigating to call page');
+    if (_isCallActive || _hasNavigated) return;
     
     setState(() {
       _isCallActive = true;
@@ -117,6 +134,14 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     _timeoutTimer?.cancel();
     
     // Navigate to the matched users call page
+    _navigateToCallPage();
+  }
+
+  void _navigateToCallPage() {
+    if (_hasNavigated) return;
+    
+    _hasNavigated = true;
+    
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -146,15 +171,25 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   }
 
   Future<void> _cancelCall() async {
-    if (_isLeavingCall) return;
+    if (_isLeavingCall || _hasNavigated) return;
     
     setState(() {
       _isLeavingCall = true;
     });
 
     try {
-      // Update call status to ended
-      await _callService.updateCallStatus(widget.callId, 'ended');
+      // Update call status to ended using the manage-call function
+      final response = await SupabaseClient.instance.client.functions.invoke(
+        'manage-call',
+        body: {
+          'call_id': widget.callId,
+          'action': 'end',
+        },
+      );
+
+      if (response.status != 200) {
+        print('Error ending call: ${response.data}');
+      }
       
       // Navigate back
       _navigateBack();
@@ -165,7 +200,8 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   }
 
   void _navigateBack() {
-    if (mounted) {
+    if (mounted && !_hasNavigated) {
+      _hasNavigated = true;
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(builder: (_) => const HomePage()),
@@ -213,9 +249,9 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
               ],
             ),
             child: ClipOval(
-              child: profilePictureUrl != null && profilePictureUrl.isNotEmpty
+              child: profilePictureUrl != null && profilePictureUrl.toString().isNotEmpty
                   ? Image.network(
-                      profilePictureUrl,
+                      profilePictureUrl.toString(),
                       fit: BoxFit.cover,
                       errorBuilder: (context, error, stackTrace) {
                         return _buildPlaceholderAvatar();
@@ -230,7 +266,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   }
 
   Widget _buildPlaceholderAvatar() {
-    final name = widget.matchedUser['name'] ?? 'Unknown';
+    final name = widget.matchedUser['name']?.toString() ?? 'Unknown';
     return Container(
       color: Colors.grey[400],
       child: Center(
@@ -250,8 +286,36 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
   Widget build(BuildContext context) {
     if (_isLeavingCall) {
       return const Scaffold(
+        backgroundColor: Colors.grey,
         body: Center(
-          child: CircularProgressIndicator(),
+          child: CircularProgressIndicator(
+            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+          ),
+        ),
+      );
+    }
+
+    // For accepted user, show a brief loading state before navigation
+    if (!widget.isInitiator && _callStatus == 'pending') {
+      return Scaffold(
+        backgroundColor: Colors.grey[900],
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Connecting to ${widget.matchedUser['name']}...',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -287,7 +351,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
                   
                   // User name
                   Text(
-                    widget.matchedUser['name'] ?? 'Unknown',
+                    widget.matchedUser['name']?.toString() ?? 'Unknown',
                     style: const TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
@@ -297,20 +361,19 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
                   
                   const SizedBox(height: 20),
                   
-                  // Status text
-                  Text(
-                    widget.isInitiator
-                        ? 'Calling...'
-                        : 'Incoming call...',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: Colors.grey[400],
+                  // Status text - only show for initiator
+                  if (widget.isInitiator)
+                    Text(
+                      'Calling...',
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: Colors.grey[400],
+                      ),
                     ),
-                  ),
                   
                   const SizedBox(height: 40),
                   
-                  // Loading indicator
+                  // Loading indicator - only show for initiator
                   if (widget.isInitiator)
                     Column(
                       children: [
@@ -319,7 +382,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
                         ),
                         const SizedBox(height: 20),
                         Text(
-                          'Waiting for ${widget.matchedUser['name']} to connect...',
+                          'Waiting for ${widget.matchedUser['name']} to answer...',
                           style: TextStyle(
                             fontSize: 16,
                             color: Colors.grey[400],
@@ -342,7 +405,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
                   onPressed: _cancelCall,
                   backgroundColor: Colors.red,
                   icon: const Icon(Icons.call_end),
-                  label: Text(widget.isInitiator ? 'Cancel' : 'Decline'),
+                  label: Text(widget.isInitiator ? 'Cancel' : 'End Call'),
                 ),
               ),
             ),
