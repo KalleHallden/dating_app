@@ -13,6 +13,9 @@ import 'services/online_status_service.dart';
 import 'services/call_notification_service.dart';
 import 'widgets/call_notification.dart';
 
+// Global navigator key
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Ensure Supabase is initialized with the correct redirect URL and authFlowType
@@ -59,7 +62,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       if (event == supabase.AuthChangeEvent.signedIn && session != null) {
         OnlineStatusService().initialize();
         // Re-initialize call notification service for new user
-        CallNotificationService().initialize();
+        CallNotificationService().reinitialize();
       } else if (event == supabase.AuthChangeEvent.signedOut) {
         OnlineStatusService().dispose();
         // No need to dispose CallNotificationService - it handles auth changes internally
@@ -101,7 +104,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       // Re-initialize call notification service when app resumes
       // This ensures subscriptions are re-established
       print('App resumed - re-initializing call notification service');
-      CallNotificationService().initialize();
+      CallNotificationService().reinitialize();
     }
   }
 
@@ -221,6 +224,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Dating App',
+      navigatorKey: navigatorKey, // Add the navigator key here
       theme: ThemeData(
         primaryColor: const Color(0xFF007AFF),
         colorScheme: const ColorScheme.light(
@@ -248,6 +252,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           unselectedItemColor: Colors.grey[400],
         ),
       ),
+      // Use a builder to wrap the entire app navigation with CallNotificationOverlay
+      builder: (context, child) {
+        // Only wrap with CallNotificationOverlay if user is authenticated
+        if (_session != null && _session?.user != null) {
+          print('Main: Wrapping app with CallNotificationOverlay');
+          return CallNotificationOverlay(
+            navigatorKey: navigatorKey, // Pass the navigator key
+            child: child ?? const SizedBox.shrink(),
+          );
+        }
+        return child ?? const SizedBox.shrink();
+      },
       home: _isCheckingAuth 
           ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),
@@ -267,19 +283,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                   );
                 }
                 
-                // Wrap the app content with CallNotificationOverlay
-                final screen = snapshot.data ?? const AuthScreen();
-                
-                // Always wrap with CallNotificationOverlay if user is authenticated
-                if (_session != null && _session?.user != null) {
-                  final userId = _session!.user.id;
-                  print('Main: Wrapping with CallNotificationOverlay for user $userId');
-                  return CallNotificationOverlay(
-                    child: screen,
-                  );
-                }
-                
-                return screen;
+                return snapshot.data ?? const AuthScreen();
               },
             ),
     );

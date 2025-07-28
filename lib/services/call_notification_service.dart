@@ -21,6 +21,8 @@ class CallNotificationService {
   bool _isSubscribed = false;
   StreamSubscription? _authSubscription;
   bool _isInitialized = false;
+  int _subscriptionRetryCount = 0;
+  static const int _maxRetries = 5;
   
   // Stream controllers for UI updates
   final _notificationStateController = StreamController<CallNotificationState>.broadcast();
@@ -37,6 +39,7 @@ class CallNotificationService {
     
     print('CallNotificationService: Initializing');
     _isInitialized = true;
+    _subscriptionRetryCount = 0;
     
     final client = SupabaseClient.instance.client;
     final currentUser = client.auth.currentUser;
@@ -51,6 +54,7 @@ class CallNotificationService {
     }
     
     // Listen for auth state changes
+    _authSubscription?.cancel();
     _authSubscription = client.auth.onAuthStateChange.listen((data) {
       final event = data.event;
       final session = data.session;
@@ -59,7 +63,9 @@ class CallNotificationService {
       
       if (event == supabase.AuthChangeEvent.signedIn && session != null) {
         _currentUserId = session.user.id;
+        _subscriptionRetryCount = 0;
         _setupSubscription();
+        _checkForPendingCalls();
       } else if (event == supabase.AuthChangeEvent.signedOut) {
         _unsubscribeFromCalls();
         _currentUserId = null;
@@ -73,10 +79,37 @@ class CallNotificationService {
     });
   }
 
+  Future<void> reinitialize() async {
+    print('CallNotificationService: Reinitializing');
+    _isInitialized = false;
+    _subscriptionRetryCount = 0;
+    
+    // Cancel existing subscriptions
+    await _unsubscribeFromCalls();
+    _subscriptionCheckTimer?.cancel();
+    
+    // Clear any existing state
+    _incomingCall = null;
+    _callerInfo = null;
+    _hideNotification();
+    
+    // Re-initialize
+    await initialize();
+  }
+
   Future<void> _checkSubscriptionHealth() async {
-    print('CallNotificationService: Health check - isSubscribed: $_isSubscribed, userId: $_currentUserId');
-    if (_currentUserId != null && !_isSubscribed) {
-      print('CallNotificationService: Subscription health check - resubscribing');
+    if (_currentUserId == null) return;
+    
+    print('CallNotificationService: Health check - isSubscribed: $_isSubscribed, userId: $_currentUserId, retryCount: $_subscriptionRetryCount');
+    
+    if (!_isSubscribed && _subscriptionRetryCount < _maxRetries) {
+      print('CallNotificationService: Subscription health check - resubscribing (attempt ${_subscriptionRetryCount + 1}/$_maxRetries)');
+      await _setupSubscription();
+    } else if (_subscriptionRetryCount >= _maxRetries) {
+      print('CallNotificationService: Max retries reached. Resetting retry count and trying fresh subscription.');
+      _subscriptionRetryCount = 0;
+      await _unsubscribeFromCalls();
+      await Future.delayed(const Duration(seconds: 2)); // Wait before retrying
       await _setupSubscription();
     }
   }
@@ -96,57 +129,54 @@ class CallNotificationService {
     final client = SupabaseClient.instance.client;
     
     try {
-      final channelName = 'incoming-calls-$userId';
+      final channelName = 'incoming-calls-$userId-${DateTime.now().millisecondsSinceEpoch}';
       
       _callsChannel = client
           .channel(channelName)
           .onPostgresChanges(
-            event: supabase.PostgresChangeEvent.insert,
-            schema: 'public',
-            table: 'calls',
-            filter: supabase.PostgresChangeFilter(
-              type: supabase.PostgresChangeFilterType.eq,
-              column: 'called_id',
-              value: userId,
-            ),
-            callback: (payload) async {
-              print('CallNotificationService: Received INSERT call event');
-              print('CallNotificationService: Payload: ${payload.newRecord}');
-              await _handleIncomingCall(payload.newRecord);
-            },
-          )
-          .onPostgresChanges(
-            event: supabase.PostgresChangeEvent.update,
+            event: supabase.PostgresChangeEvent.all,
             schema: 'public',
             table: 'calls',
             callback: (payload) async {
-              final callData = payload.newRecord;
-              print('CallNotificationService: Received UPDATE call event: ${callData['status']}');
+              print('CallNotificationService: Received ${payload.eventType} call event');
               
-              // Check if this update is for a call involving the current user
-              final isUserInvolved = callData['caller_id'] == userId || 
-                                   callData['called_id'] == userId;
-              
-              if (!isUserInvolved) {
-                return;
-              }
-              
-              // If a call we're showing becomes declined or ended, hide the notification
-              if (_incomingCall != null && 
-                  callData['id'] == _incomingCall!['id'] &&
-                  (callData['status'] == 'declined' || 
-                   callData['status'] == 'ended' ||
-                   callData['status'] == 'completed')) {
-                print('CallNotificationService: Hiding notification for ended/declined call');
-                _hideNotification();
-              }
-              
-              // Also check for new pending calls that might have been missed
-              if (callData['called_id'] == userId && 
-                  callData['status'] == 'pending' &&
-                  _incomingCall == null) {
-                print('CallNotificationService: Found pending call in UPDATE event');
-                await _handleIncomingCall(callData);
+              if (payload.eventType == supabase.PostgresChangeEvent.insert) {
+                final callData = payload.newRecord;
+                print('CallNotificationService: INSERT Payload: $callData');
+                
+                // Only show notification for pending calls where we are the called party
+                if (callData['status'] == 'pending' && callData['called_id'] == userId) {
+                  await _handleIncomingCall(callData);
+                }
+              } else if (payload.eventType == supabase.PostgresChangeEvent.update) {
+                final callData = payload.newRecord;
+                print('CallNotificationService: UPDATE event: ${callData['status']}');
+                
+                // Check if this update is for a call involving the current user
+                final isUserInvolved = callData['caller_id'] == userId || 
+                                     callData['called_id'] == userId;
+                
+                if (!isUserInvolved) {
+                  return;
+                }
+                
+                // If a call we're showing becomes declined or ended, hide the notification
+                if (_incomingCall != null && 
+                    callData['id'] == _incomingCall!['id'] &&
+                    (callData['status'] == 'declined' || 
+                     callData['status'] == 'ended' ||
+                     callData['status'] == 'completed')) {
+                  print('CallNotificationService: Hiding notification for ended/declined call');
+                  _hideNotification();
+                }
+                
+                // Also check for new pending calls that might have been missed
+                if (callData['called_id'] == userId && 
+                    callData['status'] == 'pending' &&
+                    _incomingCall == null) {
+                  print('CallNotificationService: Found pending call in UPDATE event');
+                  await _handleIncomingCall(callData);
+                }
               }
             },
           )
@@ -154,10 +184,13 @@ class CallNotificationService {
             if (error != null) {
               print('CallNotificationService: Subscription error: $error');
               _isSubscribed = false;
-              // Retry subscription after error
-              Future.delayed(const Duration(seconds: 5), () {
-                if (_currentUserId != null) {
-                  print('CallNotificationService: Retrying subscription after error');
+              _subscriptionRetryCount++;
+              
+              // Retry subscription after error with exponential backoff
+              final retryDelay = Duration(seconds: 2 * (_subscriptionRetryCount.clamp(1, 5)));
+              Future.delayed(retryDelay, () {
+                if (_currentUserId != null && _subscriptionRetryCount < _maxRetries) {
+                  print('CallNotificationService: Retrying subscription after error (attempt $_subscriptionRetryCount)');
                   _setupSubscription();
                 }
               });
@@ -166,23 +199,34 @@ class CallNotificationService {
               _isSubscribed = status == 'SUBSCRIBED';
               if (_isSubscribed) {
                 print('CallNotificationService: Successfully subscribed to channel');
+                _subscriptionRetryCount = 0; // Reset retry count on success
               }
             }
           });
       
       // Wait a bit to ensure subscription is established
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(const Duration(milliseconds: 1000));
+      
+      // Check subscription status
+      if (!_isSubscribed) {
+        print('CallNotificationService: Subscription not confirmed after setup');
+        _subscriptionRetryCount++;
+      }
       
     } catch (e) {
       print('CallNotificationService: Error setting up subscription: $e');
       _isSubscribed = false;
+      _subscriptionRetryCount++;
+      
       // Retry after a delay
-      Future.delayed(const Duration(seconds: 3), () {
-        if (_currentUserId != null) {
-          print('CallNotificationService: Retrying subscription after exception');
-          _setupSubscription();
-        }
-      });
+      if (_subscriptionRetryCount < _maxRetries) {
+        Future.delayed(const Duration(seconds: 3), () {
+          if (_currentUserId != null) {
+            print('CallNotificationService: Retrying subscription after exception');
+            _setupSubscription();
+          }
+        });
+      }
     }
   }
 
@@ -218,16 +262,7 @@ class CallNotificationService {
       if (pendingCalls.isNotEmpty) {
         final callData = pendingCalls.first;
         print('CallNotificationService: Found pending call on startup: ${callData['id']}');
-        
-        final callerResponse = await client
-            .from('users')
-            .select('*')
-            .eq('user_id', callData['caller_id'])
-            .single();
-        
-        _incomingCall = callData;
-        _callerInfo = callerResponse;
-        _showNotification();
+        await _handleIncomingCall(callData);
       } else {
         print('CallNotificationService: No pending calls found');
       }
@@ -248,9 +283,9 @@ class CallNotificationService {
       return;
     }
     
-    // Don't show notification if we're already showing one
-    if (_incomingCall != null) {
-      print('CallNotificationService: Already showing a notification, ignoring new call');
+    // Don't show notification if we're already showing one for the same call
+    if (_incomingCall != null && _incomingCall!['id'] == callData['id']) {
+      print('CallNotificationService: Already showing notification for this call');
       return;
     }
     
@@ -288,8 +323,8 @@ class CallNotificationService {
     ));
 
     // Auto-dismiss after 30 seconds if no action taken
-    Future.delayed(const Duration(seconds: 30), () {
-      if (_incomingCall != null) {
+    Timer(const Duration(seconds: 30), () {
+      if (_incomingCall != null && _incomingCall!['id'] == _incomingCall!['id']) {
         print('CallNotificationService: Auto-declining after timeout');
         handleDecline();
       }
@@ -335,12 +370,30 @@ class CallNotificationService {
         throw Exception(response.data['error'] ?? 'Failed to accept call');
       }
       
-      // Notify UI to navigate
-      onAcceptCall?.call(_incomingCall!, _callerInfo!);
+      print('CallNotificationService: Call accepted successfully');
       
+      // Store call data before hiding notification
+      final callData = Map<String, dynamic>.from(_incomingCall!);
+      final callerData = Map<String, dynamic>.from(_callerInfo!);
+      
+      // Hide notification first
       _hideNotification();
+      
+      // Small delay to ensure UI updates
+      await Future.delayed(const Duration(milliseconds: 100));
+      
+      // Then notify UI to navigate
+      onAcceptCall?.call(callData, callerData);
+      
     } catch (e) {
       print('CallNotificationService: Error accepting call: $e');
+      // Try navigation anyway if we have the data
+      if (onAcceptCall != null) {
+        final callData = Map<String, dynamic>.from(_incomingCall!);
+        final callerData = Map<String, dynamic>.from(_callerInfo!);
+        _hideNotification();
+        onAcceptCall!(callData, callerData);
+      }
     }
   }
 
@@ -371,6 +424,7 @@ class CallNotificationService {
       _hideNotification();
     } catch (e) {
       print('CallNotificationService: Error declining call: $e');
+      _hideNotification(); // Hide notification even on error
     }
   }
 
@@ -381,6 +435,7 @@ class CallNotificationService {
     _unsubscribeFromCalls();
     _notificationStateController.close();
     _isInitialized = false;
+    _subscriptionRetryCount = 0;
   }
 }
 

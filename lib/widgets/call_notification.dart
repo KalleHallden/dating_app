@@ -8,25 +8,36 @@ import '../pages/matched_users_call_page.dart';
 
 class CallNotificationOverlay extends StatefulWidget {
   final Widget child;
+  final GlobalKey<NavigatorState> navigatorKey;
   
   const CallNotificationOverlay({
     Key? key,
     required this.child,
+    required this.navigatorKey,
   }) : super(key: key);
 
   @override
   State<CallNotificationOverlay> createState() => _CallNotificationOverlayState();
 }
 
-class _CallNotificationOverlayState extends State<CallNotificationOverlay> {
+class _CallNotificationOverlayState extends State<CallNotificationOverlay> with WidgetsBindingObserver {
   final CallNotificationService _notificationService = CallNotificationService();
   StreamSubscription<CallNotificationState>? _notificationSubscription;
   CallNotificationState? _currentState;
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     print('CallNotificationOverlay: initState called');
+    
+    _setupNotificationListener();
+  }
+
+  void _setupNotificationListener() {
+    // Cancel any existing subscription
+    _notificationSubscription?.cancel();
     
     // Set up navigation callback
     _notificationService.onAcceptCall = _handleAcceptedCall;
@@ -43,14 +54,31 @@ class _CallNotificationOverlayState extends State<CallNotificationOverlay> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      print('CallNotificationOverlay: App resumed, re-setting up listener');
+      _setupNotificationListener();
+    }
+  }
+
+  @override
   void dispose() {
     print('CallNotificationOverlay: dispose called');
+    WidgetsBinding.instance.removeObserver(this);
     _notificationSubscription?.cancel();
+    // Don't null out the onAcceptCall callback here as the service persists
     super.dispose();
   }
 
   void _handleAcceptedCall(Map<String, dynamic> callData, Map<String, dynamic> callerInfo) {
+    if (_isNavigating) {
+      print('CallNotificationOverlay: Already navigating, ignoring duplicate call');
+      return;
+    }
+    
     print('CallNotificationOverlay: Handling accepted call');
+    _isNavigating = true;
     
     final callId = callData['id'] as String;
     final channelName = callData['channel_name'] as String;
@@ -65,9 +93,9 @@ class _CallNotificationOverlayState extends State<CallNotificationOverlay> {
       'is_available': callerInfo['is_available'] ?? false,
     };
     
-    if (mounted) {
-      Navigator.push(
-        context,
+    // Use the navigator key to navigate
+    if (widget.navigatorKey.currentState != null) {
+      widget.navigatorKey.currentState!.push(
         MaterialPageRoute(
           builder: (context) => WaitingCallPage(
             callId: callId,
@@ -76,7 +104,31 @@ class _CallNotificationOverlayState extends State<CallNotificationOverlay> {
             isInitiator: false,
           ),
         ),
-      );
+      ).then((_) {
+        // Reset navigation flag when we come back
+        _isNavigating = false;
+      });
+    } else {
+      print('CallNotificationOverlay: Navigator key current state is null');
+      _isNavigating = false;
+      
+      // Try alternative navigation method as fallback
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && widget.navigatorKey.currentState != null) {
+          widget.navigatorKey.currentState!.push(
+            MaterialPageRoute(
+              builder: (context) => WaitingCallPage(
+                callId: callId,
+                channelName: channelName,
+                matchedUser: matchedUser,
+                isInitiator: false,
+              ),
+            ),
+          ).then((_) {
+            _isNavigating = false;
+          });
+        }
+      });
     }
   }
 
