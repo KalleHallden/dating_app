@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
+import '../services/location_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -22,6 +23,8 @@ class _ProfilePageState extends State<ProfilePage> {
   XFile? _selectedImage;
   bool _isUploadingImage = false;
   supabase.RealtimeChannel? _realtimeChannel;
+  String? _locationCity; // Add this to store the city name
+  String? _editLocationCity; // Add this for edit mode city name
   
   // Add a key to force rebuild of profile image
   Key _profileImageKey = UniqueKey();
@@ -94,6 +97,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 // Force rebuild of profile image by changing key
                 _profileImageKey = UniqueKey();
               });
+              // Reload location city if location changed
+              _loadLocationCity();
             }
           },
         )
@@ -127,11 +132,43 @@ class _ProfilePageState extends State<ProfilePage> {
         // Initialize edit mode values
         _initializeEditValues();
       });
+      
+      // Load location city name
+      await _loadLocationCity();
     } catch (e) {
       print('Error loading user profile: $e');
       setState(() {
         _errorMessage = 'Failed to load profile: $e';
         _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadLocationCity() async {
+    if (_userData == null) return;
+    
+    final location = _userData!['location'];
+    if (location != null) {
+      final cityName = await LocationService().getCityFromPostGISPoint(location);
+      if (mounted) {
+        setState(() {
+          _locationCity = cityName;
+        });
+      }
+    }
+  }
+
+  Future<void> _loadEditLocationCity() async {
+    if (_editLocation == null) return;
+    
+    final cityName = await LocationService().getCityFromCoordinates(
+      _editLocation!.lat,
+      _editLocation!.long,
+    );
+    
+    if (mounted) {
+      setState(() {
+        _editLocationCity = cityName;
       });
     }
   }
@@ -163,6 +200,9 @@ class _ProfilePageState extends State<ProfilePage> {
         }
       }
     }
+    
+    // Set edit location city to current location city
+    _editLocationCity = _locationCity;
   }
 
   void _enterEditMode() {
@@ -178,6 +218,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _isEditMode = false;
       _editProfileImage = null;
       _selectedImage = null;
+      _editLocationCity = null;
       // Reset values
       _initializeEditValues();
     });
@@ -234,9 +275,15 @@ class _ProfilePageState extends State<ProfilePage> {
         _isEditMode = false;
         _editProfileImage = null;
         _selectedImage = null;
+        _editLocationCity = null;
         // Force rebuild of profile image
         _profileImageKey = UniqueKey();
       });
+      
+      // Reload location city if location was updated
+      if (_editLocation != null) {
+        await _loadLocationCity();
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -661,12 +708,34 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
                       onPressed: () async {
-                        await Navigator.push(
+                        final result = await Navigator.push(
                           context,
                           MaterialPageRoute(
                             builder: (_) => LocationPicker(
                               onLocationSelected: (location) {
-                                setState(() => _editLocation = location);
+                                // This callback is called when location is selected
+                              },
+                            ),
+                          ),
+                        );
+                        
+                        // After returning from LocationPicker, check if a location was selected
+                        // The LocationPicker calls onLocationSelected before popping
+                        // So we need to use a different approach
+                        
+                        // Navigate with a then callback to update state after returning
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => LocationPicker(
+                              onLocationSelected: (location) async {
+                                // Update the state with new location
+                                setState(() {
+                                  _editLocation = location;
+                                });
+                                
+                                // Load the city name for the new location
+                                await _loadEditLocationCity();
                               },
                             ),
                           ),
@@ -675,7 +744,7 @@ class _ProfilePageState extends State<ProfilePage> {
                       icon: const Icon(Icons.location_on),
                       label: Text(
                         _editLocation != null
-                            ? 'Location set (${_editLocation!.lat.toStringAsFixed(2)}, ${_editLocation!.long.toStringAsFixed(2)})'
+                            ? _editLocationCity ?? 'Location set (${_editLocation!.lat.toStringAsFixed(2)}, ${_editLocation!.long.toStringAsFixed(2)})'
                             : 'Set Location',
                       ),
                       style: ElevatedButton.styleFrom(
@@ -685,7 +754,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(height: 20),
                   ],
                 )
-              : _buildInfoRow(Icons.location_on, _formatLocation()),
+              : _buildInfoRow(Icons.location_on, _locationCity ?? 'Loading...'),
           
           if (!_isEditMode) const SizedBox(height: 12),
           
@@ -853,22 +922,8 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String _formatLocation() {
-    final location = _userData?['location'];
-    if (location == null) return 'Location not set';
-    
-    // Parse the PostGIS point format (lat,long)
-    if (location is String) {
-      final coords = location.replaceAll('(', '').replaceAll(')', '').split(',');
-      if (coords.length == 2) {
-        final lat = double.tryParse(coords[0]);
-        final long = double.tryParse(coords[1]);
-        if (lat != null && long != null) {
-          // You could use reverse geocoding here to get city name
-          return 'Location set';
-        }
-      }
-    }
-    return 'Location not set';
+    // This method is now replaced by _locationCity which is loaded asynchronously
+    return _locationCity ?? 'Loading...';
   }
 
   String _formatPreferences() {

@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
+import '../services/location_service.dart';
 
 class ViewProfilePage extends StatefulWidget {
   final String userId;
@@ -21,6 +22,7 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
   String? _errorMessage;
+  String? _locationCity; // Add this to store the city name
   supabase.RealtimeChannel? _userStatusChannel;
 
   @override
@@ -50,12 +52,29 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
         _userData = response;
         _isLoading = false;
       });
+      
+      // Load location city name
+      await _loadLocationCity();
     } catch (e) {
       print('Error loading user profile: $e');
       setState(() {
         _errorMessage = 'Failed to load profile: $e';
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _loadLocationCity() async {
+    if (_userData == null) return;
+    
+    final location = _userData!['location'];
+    if (location != null) {
+      final cityName = await LocationService().getCityFromPostGISPoint(location);
+      if (mounted) {
+        setState(() {
+          _locationCity = cityName;
+        });
+      }
     }
   }
 
@@ -85,6 +104,12 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
                 _userData!['is_available'] = updatedData['is_available'] ?? false;
                 _userData!['updated_at'] = updatedData['updated_at'];
               });
+              
+              // Check if location changed and reload city name
+              if (_userData!['location'] != updatedData['location']) {
+                _userData!['location'] = updatedData['location'];
+                _loadLocationCity();
+              }
             }
           },
         )
@@ -189,7 +214,7 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
           const SizedBox(height: 30),
           
           // Additional Info
-          _buildInfoRow(Icons.location_on, _formatLocation()),
+          _buildInfoRow(Icons.location_on, _locationCity ?? 'Loading...'),
           const SizedBox(height: 12),
           _buildInfoRow(Icons.info_outline, _formatGenderInfo()),
           const SizedBox(height: 30),
@@ -255,21 +280,8 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
   }
 
   String _formatLocation() {
-    final location = _userData?['location'];
-    if (location == null) return 'Location not set';
-    
-    // Parse the PostGIS point format (lat,long)
-    if (location is String) {
-      final coords = location.replaceAll('(', '').replaceAll(')', '').split(',');
-      if (coords.length == 2) {
-        final lat = double.tryParse(coords[0]);
-        final long = double.tryParse(coords[1]);
-        if (lat != null && long != null) {
-          return 'Location set';
-        }
-      }
-    }
-    return 'Location not set';
+    // This method is now replaced by _locationCity which is loaded asynchronously
+    return _locationCity ?? 'Loading...';
   }
 
   String _formatGenderInfo() {
