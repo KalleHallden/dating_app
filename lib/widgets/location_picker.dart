@@ -4,9 +4,14 @@ import 'package:geocoding/geocoding.dart';
 import '../models/UserLocation.dart';
 
 class LocationPicker extends StatefulWidget {
-  final Function(UserLocation) onLocationSelected;
+  final Function(UserLocation)? onLocationSelected; // Make optional for backward compatibility
+  final UserLocation? initialLocation; // Add initial location support
 
-  const LocationPicker({required this.onLocationSelected, super.key});
+  const LocationPicker({
+    this.onLocationSelected, 
+    this.initialLocation,
+    super.key,
+  });
 
   @override
   State<LocationPicker> createState() => _LocationPickerState();
@@ -14,8 +19,19 @@ class LocationPicker extends StatefulWidget {
 
 class _LocationPickerState extends State<LocationPicker> {
   GoogleMapController? _mapController;
-  LatLng _selectedPosition = const LatLng(40.7128, -74.0060); // Default: New York
+  late LatLng _selectedPosition;
   final _searchController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // Use initial location if provided, otherwise default to New York
+    if (widget.initialLocation != null) {
+      _selectedPosition = LatLng(widget.initialLocation!.lat, widget.initialLocation!.long);
+    } else {
+      _selectedPosition = const LatLng(40.7128, -74.0060); // Default: New York
+    }
+  }
 
   Future<void> _searchLocation() async {
     try {
@@ -63,6 +79,16 @@ class _LocationPickerState extends State<LocationPicker> {
             },
             myLocationEnabled: false, // No permissions needed
             myLocationButtonEnabled: false,
+            markers: {
+              Marker(
+                markerId: const MarkerId('selected'),
+                position: _selectedPosition,
+                draggable: true,
+                onDragEnd: (newPosition) {
+                  setState(() => _selectedPosition = newPosition);
+                },
+              ),
+            },
           ),
           Positioned(
             top: 16,
@@ -85,13 +111,6 @@ class _LocationPickerState extends State<LocationPicker> {
               onSubmitted: (_) => _searchLocation(),
             ),
           ),
-          Center(
-            child: Icon(
-              Icons.location_pin,
-              color: Colors.red,
-              size: 40,
-            ),
-          ),
           Positioned(
             bottom: 16,
             right: 16,
@@ -101,8 +120,12 @@ class _LocationPickerState extends State<LocationPicker> {
                   lat: _selectedPosition.latitude,
                   long: _selectedPosition.longitude,
                 );
-                widget.onLocationSelected(selectedLocation);
-                Navigator.pop(context);
+                
+                // Call the callback if provided (for backward compatibility)
+                widget.onLocationSelected?.call(selectedLocation);
+                
+                // Return the location via Navigator.pop
+                Navigator.pop(context, selectedLocation);
               },
               child: const Text('Set Location'),
             ),

@@ -708,38 +708,36 @@ class _ProfilePageState extends State<ProfilePage> {
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
                       onPressed: () async {
-                        final result = await Navigator.push(
+                        print('Opening LocationPicker with current location: ${_editLocation?.lat}, ${_editLocation?.long}');
+                        
+                        // Navigate to LocationPicker and wait for result
+                        final UserLocation? result = await Navigator.push<UserLocation>(
                           context,
                           MaterialPageRoute(
                             builder: (_) => LocationPicker(
-                              onLocationSelected: (location) {
-                                // This callback is called when location is selected
-                              },
+                              initialLocation: _editLocation,
+                              onLocationSelected: null, // We're using return value instead
                             ),
                           ),
                         );
                         
-                        // After returning from LocationPicker, check if a location was selected
-                        // The LocationPicker calls onLocationSelected before popping
-                        // So we need to use a different approach
-                        
-                        // Navigate with a then callback to update state after returning
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => LocationPicker(
-                              onLocationSelected: (location) async {
-                                // Update the state with new location
-                                setState(() {
-                                  _editLocation = location;
-                                });
-                                
-                                // Load the city name for the new location
-                                await _loadEditLocationCity();
-                              },
-                            ),
-                          ),
-                        );
+                        // Handle the returned location
+                        if (result != null) {
+                          print('Received location from picker: ${result.lat}, ${result.long}');
+                          
+                          setState(() {
+                            _editLocation = result;
+                            _editLocationCity = null; // Clear city name while loading
+                          });
+                          
+                          // Load the city name for the new location
+                          await _loadEditLocationCity();
+                          
+                          print('Updated edit location to: ${_editLocation?.lat}, ${_editLocation?.long}');
+                          print('Updated edit location city to: $_editLocationCity');
+                        } else {
+                          print('No location returned from picker');
+                        }
                       },
                       icon: const Icon(Icons.location_on),
                       label: Text(
