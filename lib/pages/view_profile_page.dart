@@ -219,42 +219,21 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
           _buildInfoRow(Icons.info_outline, _formatGenderInfo()),
           const SizedBox(height: 30),
           
-          // Action Buttons
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    // TODO: Navigate to chat
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Chat feature coming soon!'),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.message),
-                  label: const Text('Message'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
+          // Action Button - Only Unmatch button
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                _showUnmatchDialog();
+              },
+              icon: const Icon(Icons.heart_broken),
+              label: const Text('Unmatch'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Colors.red,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                side: const BorderSide(color: Colors.red),
               ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () {
-                    _showUnmatchDialog();
-                  },
-                  icon: const Icon(Icons.heart_broken),
-                  label: const Text('Unmatch'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -279,11 +258,6 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
     );
   }
 
-  String _formatLocation() {
-    // This method is now replaced by _locationCity which is loaded asynchronously
-    return _locationCity ?? 'Loading...';
-  }
-
   String _formatGenderInfo() {
     final gender = _userData?['gender'] ?? 'Not specified';
     return 'Gender: $gender';
@@ -293,12 +267,12 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Unmatch'),
-        content: Text('Are you sure you want to unmatch with ${_userData?['name'] ?? 'this person'}?'),
+        title: const Text('Press it by mistake did you?'),
+        content: Text('Do you really want to unmatch with ${_userData?['name'] ?? 'this person'}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
+            child: const Text('yes I did'),
           ),
           TextButton(
             onPressed: () async {
@@ -306,7 +280,7 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
               await _unmatchUser();
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('Unmatch'),
+            child: const Text('no un-match me!'),
           ),
         ],
       ),
