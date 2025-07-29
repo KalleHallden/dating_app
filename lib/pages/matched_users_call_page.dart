@@ -65,7 +65,12 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   void dispose() {
     _callStatusChannel?.unsubscribe();
     _durationTimer?.cancel();
+    
+    // Ensure we set the user as not in call when disposing
     OnlineStatusService().setInCall(false);
+    // Force refresh status to ensure it's properly updated
+    OnlineStatusService().forceRefreshStatus();
+    
     super.dispose();
   }
 
@@ -75,6 +80,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       onUpdate: (callData) {
         if (!mounted) return;
         
+        final previousStatus = _callStatus;
         setState(() {
           _callStatus = callData['status'] ?? 'pending';
         });
@@ -82,7 +88,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
         // Handle different call statuses
         switch (_callStatus) {
           case 'accepted':
-            if (widget.isInitiator) {
+            if (widget.isInitiator && previousStatus == 'pending') {
               _startCall();
             }
             break;
@@ -90,6 +96,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
             _handleCallDeclined();
             break;
           case 'ended':
+          case 'completed':
             _handleCallEnded();
             break;
         }
@@ -119,11 +126,19 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   }
 
   void _handleCallDeclined() {
+    // Set user as not in call and force status update
+    OnlineStatusService().setInCall(false);
+    OnlineStatusService().forceRefreshStatus();
+    
     _showMessage('${widget.matchedUser['name']} declined the call', isError: true);
     _navigateBack();
   }
 
   void _handleCallEnded() {
+    // Set user as not in call and force status update
+    OnlineStatusService().setInCall(false);
+    OnlineStatusService().forceRefreshStatus();
+    
     _showMessage('Call ended');
     _navigateBack();
   }
@@ -142,9 +157,19 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       // Update call status to ended
       await _callService.endCall(widget.callId);
       
+      // Force refresh online status after a short delay to ensure it's registered
+      await Future.delayed(const Duration(milliseconds: 500));
+      await OnlineStatusService().forceRefreshStatus();
+      
+      // Additional delay to ensure the other user sees the status update
+      await Future.delayed(const Duration(milliseconds: 500));
+      
       _navigateBack();
     } catch (e) {
       print('Error ending call: $e');
+      // Even on error, ensure we update the status
+      OnlineStatusService().setInCall(false);
+      OnlineStatusService().forceRefreshStatus();
       _navigateBack();
     }
   }
@@ -291,143 +316,154 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     }
 
     // Active call UI
-    return Scaffold(
-      body: Stack(
-        children: [
-          // Profile picture (no blur)
-          Positioned.fill(
-            child: widget.matchedUser['profile_picture_url'] != null && 
-                   widget.matchedUser['profile_picture_url'].isNotEmpty
-                ? Image.network(
-                    widget.matchedUser['profile_picture_url'],
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        color: Colors.grey[800],
-                        child: const Center(
-                          child: Icon(
-                            Icons.person,
-                            size: 100,
-                            color: Colors.white30,
-                          ),
-                        ),
-                      );
-                    },
-                  )
-                : Container(
-                    color: Colors.grey[800],
-                    child: const Center(
-                      child: Icon(
-                        Icons.person,
-                        size: 100,
-                        color: Colors.white30,
-                      ),
-                    ),
-                  ),
-          ),
-          
-          // Dark overlay for better text visibility
-          Positioned.fill(
-            child: Container(
-              color: Colors.black.withOpacity(0.3),
-            ),
-          ),
-          
-          // Top bar with name and duration
-          Positioned(
-            top: 40,
-            left: 20,
-            right: 20,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      widget.matchedUser['name'] ?? '',
-                      style: const TextStyle(
-                        fontSize: 24,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatDuration(_callDuration),
-                      style: const TextStyle(
-                        fontSize: 16,
-                        color: Colors.white70,
-                      ),
-                    ),
-                  ],
-                ),
-                ElevatedButton(
-                  onPressed: _endCall,
-                  style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.all(Colors.red),
-                  ),
-                  child: const Text('End', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          ),
-          
-          // Audio component
-          Align(
-            alignment: Alignment.center,
-            child: JoinChannelAudio(
-              channelID: widget.channelName,
-              callId: widget.callId,
-            ),
-          ),
-          
-          // Bottom section with conversation starter
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 40),
-              child: Card(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                elevation: 8,
-                child: Container(
-                  width: MediaQuery.of(context).size.width * 0.9,
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Text(
-                        'Conversation Starter',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 10),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.arrow_left),
-                            onPressed: _prevOption,
-                          ),
-                          Expanded(
-                            child: Text(
-                              options[currentIndex],
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 16),
+    return WillPopScope(
+      onWillPop: () async {
+        // Prevent accidental back navigation during call
+        return false;
+      },
+      child: Scaffold(
+        body: Stack(
+          children: [
+            // Profile picture (no blur)
+            Positioned.fill(
+              child: widget.matchedUser['profile_picture_url'] != null && 
+                     widget.matchedUser['profile_picture_url'].isNotEmpty
+                  ? Image.network(
+                      widget.matchedUser['profile_picture_url'],
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey[800],
+                          child: const Center(
+                            child: Icon(
+                              Icons.person,
+                              size: 100,
+                              color: Colors.white30,
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.arrow_right),
-                            onPressed: _nextOption,
-                          ),
-                        ],
+                        );
+                      },
+                    )
+                  : Container(
+                      color: Colors.grey[800],
+                      child: const Center(
+                        child: Icon(
+                          Icons.person,
+                          size: 100,
+                          color: Colors.white30,
+                        ),
+                      ),
+                    ),
+            ),
+            
+            // Dark overlay for better text visibility
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.3),
+              ),
+            ),
+            
+            // Top bar with name and duration
+            Positioned(
+              top: 40,
+              left: 20,
+              right: 20,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.matchedUser['name'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 24,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatDuration(_callDuration),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Colors.white70,
+                        ),
                       ),
                     ],
+                  ),
+                  ElevatedButton(
+                    onPressed: _isLeavingCall ? null : _endCall,
+                    style: ButtonStyle(
+                      backgroundColor: MaterialStateProperty.all(
+                        _isLeavingCall ? Colors.grey : Colors.red
+                      ),
+                    ),
+                    child: Text(
+                      _isLeavingCall ? 'Ending...' : 'End',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            
+            // Audio component
+            Align(
+              alignment: Alignment.center,
+              child: JoinChannelAudio(
+                channelID: widget.channelName,
+                callId: widget.callId,
+              ),
+            ),
+            
+            // Bottom section with conversation starter
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 40),
+                child: Card(
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  elevation: 8,
+                  child: Container(
+                    width: MediaQuery.of(context).size.width * 0.9,
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Conversation Starter',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_left),
+                              onPressed: _prevOption,
+                            ),
+                            Expanded(
+                              child: Text(
+                                options[currentIndex],
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 16),
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_right),
+                              onPressed: _nextOption,
+                            ),
+                          ],
+			),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

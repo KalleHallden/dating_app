@@ -14,7 +14,7 @@ class OnlineStatusService with WidgetsBindingObserver {
   Timer? _heartbeatTimer;
   bool _isInitialized = false;
   bool _isInCall = false;
-  StreamSubscription<List<Map<String, dynamic>>>? _callSubscription;
+  supabase.RealtimeChannel? _callStatusChannel;
   bool _lastOnlineStatus = false;
   DateTime? _lastHeartbeat;
   static const Duration _heartbeatInterval = Duration(seconds: 30); // Send heartbeat every 30 seconds
@@ -88,9 +88,9 @@ class OnlineStatusService with WidgetsBindingObserver {
     _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) => _sendHeartbeat());
   }
 
-  /// Subscribe to active calls stream, flip in-call flag as events arrive
+  /// Subscribe to call status changes using Realtime
   void _subscribeToCallStatus() {
-    _callSubscription?.cancel();
+    _callStatusChannel?.unsubscribe();
     final client = SupabaseClient.instance.client;
     final user = client.auth.currentUser;
     if (user == null) {
@@ -99,28 +99,65 @@ class OnlineStatusService with WidgetsBindingObserver {
     }
 
     print('DEBUG: Subscribing to call status for user ${user.id}');
-    _callSubscription = client
-        .from('calls')
-        .stream(primaryKey: ['id'])
-        .eq('status', 'active')
-        .listen((data) {
-      print('DEBUG: Call stream data: $data');
-      if (data.isEmpty) {
-        if (_isInCall) {
-          _isInCall = false;
-          print('DEBUG: No active calls, resetting inCall=false');
-          _sendHeartbeat(); // Send immediate heartbeat on status change
-        }
-        return;
-      }
-      final inAnyCall = data.any((call) =>
-          call['caller_id'] == user.id || call['called_id'] == user.id);
-      if (inAnyCall != _isInCall) {
-        _isInCall = inAnyCall;
-        print('DEBUG: Call status changed, inCall=$inAnyCall, updating status');
-        _sendHeartbeat(); // Send immediate heartbeat on status change
-      }
-    });
+    
+    // Create a unique channel name
+    final channelName = 'call-status-${user.id}-${DateTime.now().millisecondsSinceEpoch}';
+    
+    // Subscribe to call changes where user is either caller or called
+    _callStatusChannel = client
+        .channel(channelName)
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'calls',
+          callback: (payload) {
+            final callData = payload.eventType == supabase.PostgresChangeEvent.delete
+                ? payload.oldRecord
+                : payload.newRecord;
+            
+            // Check if this call involves the current user
+            if (callData['caller_id'] != user.id && callData['called_id'] != user.id) {
+              return;
+            }
+            
+            print('DEBUG: Call event for user - type: ${payload.eventType}, status: ${callData['status']}');
+            
+            // Determine if user should be in call based on the event
+            bool shouldBeInCall = false;
+            
+            if (payload.eventType != supabase.PostgresChangeEvent.delete) {
+              final status = callData['status'];
+              shouldBeInCall = (status == 'active' || status == 'accepted' || status == 'pending');
+            }
+            
+            if (shouldBeInCall != _isInCall) {
+              _isInCall = shouldBeInCall;
+              print('DEBUG: Call status changed, inCall=$shouldBeInCall, updating status');
+              _sendHeartbeat(); // Send immediate heartbeat on status change
+            }
+            
+            // Also handle recently ended calls
+            if (payload.eventType == supabase.PostgresChangeEvent.update) {
+              final status = callData['status'];
+              if ((status == 'ended' || status == 'completed' || status == 'declined') && _isInCall) {
+                print('DEBUG: Call ended, forcing status update');
+                _isInCall = false;
+                _sendHeartbeat();
+                
+                // Send another heartbeat after a delay to ensure it's registered
+                Future.delayed(const Duration(seconds: 2), () {
+                  if (!_isInCall) {
+                    print('DEBUG: Sending follow-up heartbeat after call ended');
+                    _sendHeartbeat();
+                  }
+                });
+              }
+            }
+          },
+        )
+        .subscribe();
+    
+    print('DEBUG: Subscribed to call status changes on channel: $channelName');
   }
 
   /// Updates online status (now integrated with heartbeat)
@@ -135,9 +172,24 @@ class OnlineStatusService with WidgetsBindingObserver {
 
   /// Manually toggle in-call status (e.g. when starting/ending a call)
   Future<void> setInCall(bool inCall) async {
+    if (_isInCall == inCall) {
+      print('DEBUG: setInCall($inCall) called but status unchanged, forcing update anyway');
+    }
     _isInCall = inCall;
     print('DEBUG: Setting inCall=$inCall');
+    
+    // Always send heartbeat immediately when call status changes
     await _sendHeartbeat();
+    
+    // If ending a call, send another heartbeat after a short delay to ensure it's registered
+    if (!inCall) {
+      Future.delayed(const Duration(seconds: 2), () {
+        if (!_isInCall) { // Only if still not in a call
+          print('DEBUG: Sending follow-up heartbeat after call ended');
+          _sendHeartbeat();
+        }
+      });
+    }
   }
 
   @override
@@ -145,13 +197,12 @@ class OnlineStatusService with WidgetsBindingObserver {
     print('DEBUG: AppLifecycleState changed to $state');
     if (state == AppLifecycleState.resumed) {
       // App enters foreground
-      _isInCall = false;
-      _lastOnlineStatus = false;
       _subscribeToCallStatus();
       _startHeartbeat(); // Restart heartbeat
+      // Force a status update when resuming
+      _sendHeartbeat();
     } else if (state == AppLifecycleState.paused) {
       // App goes to background
-      _isInCall = false;
       print('DEBUG: App paused, sending final offline status');
       _heartbeatTimer?.cancel();
       
@@ -173,7 +224,6 @@ class OnlineStatusService with WidgetsBindingObserver {
       }
     } else if (state == AppLifecycleState.detached) {
       // App is being terminated - this may not always be called
-      _isInCall = false;
       print('DEBUG: App detached');
       _heartbeatTimer?.cancel();
       // Note: We can't reliably send network requests here
@@ -187,13 +237,20 @@ class OnlineStatusService with WidgetsBindingObserver {
     return DateTime.now().difference(_lastHeartbeat!) > _staleThreshold;
   }
 
+  /// Force refresh status - useful after call ends
+  Future<void> forceRefreshStatus() async {
+    print('DEBUG: Force refreshing online status');
+    _isInCall = false;
+    await _sendHeartbeat();
+  }
+
   /// Dispose and cleanup
   void dispose() {
     print('DEBUG: Disposing OnlineStatusService');
     _isInCall = false;
     WidgetsBinding.instance.removeObserver(this);
     _heartbeatTimer?.cancel();
-    _callSubscription?.cancel();
+    _callStatusChannel?.unsubscribe();
     _isInitialized = false;
     _lastOnlineStatus = false;
     _lastHeartbeat = null;
