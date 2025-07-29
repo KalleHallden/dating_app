@@ -268,7 +268,7 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Press it by mistake did you?'),
-        content: Text('Do you really want to unmatch with ${_userData?['name'] ?? 'this person'}?'),
+        //content: Text('Do you really want to unmatch with ${_userData?['name'] ?? 'this person'}?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
@@ -294,38 +294,49 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
       
       if (currentUser == null) return;
 
-      // Determine the order for the match table
-      final String smaller_id;
-      final String larger_id;
-      if (currentUser.id.compareTo(widget.userId) < 0) {
-        smaller_id = currentUser.id;
-        larger_id = widget.userId;
-      } else {
-        smaller_id = widget.userId;
-        larger_id = currentUser.id;
-      }
-
-      // Update the match as unmatched
-      await client
-          .from('matches')
-          .update({
-            'unmatched_at': DateTime.now().toIso8601String(),
-            'unmatched_by': currentUser.id,
-          })
-          .eq('user1_id', smaller_id)
-          .eq('user2_id', larger_id);
-
+      // Show loading indicator
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unmatched successfully')),
+          const SnackBar(
+            content: Text('Unmatching...'),
+            duration: Duration(seconds: 1),
+          ),
         );
-        Navigator.of(context).pop(); // Go back to matches page
+      }
+
+      // Call the database function to handle unmatching with elevated privileges
+      final response = await client.rpc('unmatch_users', params: {
+        'p_current_user_id': currentUser.id,
+        'p_other_user_id': widget.userId,
+      });
+
+      print('Unmatch response: $response');
+
+      // Check if the operation was successful
+      if (response != null && response['success'] == true) {
+        print('Successfully unmatched and removed all likes/dislikes between users');
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Unmatched successfully')),
+          );
+          Navigator.of(context).pop(); // Go back to matches page
+        }
+      } else {
+        // Handle error from the database function
+        final errorMessage = response != null && response['message'] != null 
+            ? response['message'] 
+            : 'Unknown error occurred';
+        throw Exception(errorMessage);
       }
     } catch (e) {
       print('Error unmatching: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error unmatching: $e')),
+          SnackBar(
+            content: Text('Error unmatching: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     }

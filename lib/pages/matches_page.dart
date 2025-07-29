@@ -50,14 +50,12 @@ class _MatchesPageState extends State<MatchesPage> {
         });
         return;
       }
-
-      // Query matches that are not unmatched (soft delete approach)
       final matchesResponse = await client
-          .from('matches')
-          .select('*')
-          .or('user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}')
-          .isFilter('unmatched_at', null)
-          .order('created_at', ascending: false);
+    .from('matches')
+    .select('*')
+    .or('user1_id.eq.${currentUser.id},user2_id.eq.${currentUser.id}')
+    .isFilter('unmatched_at', null)  // This line ensures unmatched users don't show
+    .order('created_at', ascending: false);
 
       // Process matches to get the other user's data
       final processedMatches = <Map<String, dynamic>>[];
