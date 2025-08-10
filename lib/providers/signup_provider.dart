@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
+import '../services/image_compression.dart';
 import '../models/UserLocation.dart';
 import 'dart:io';
 
@@ -58,21 +59,48 @@ class SignupProvider with ChangeNotifier {
 
       // Upload profile picture to Supabase Storage
       String? profilePictureUrl;
-      final profilePicturePath = userData['profile_picture'] as String?;
-      if (profilePicturePath != null) {
+      
+      // Try multiple keys for backward compatibility
+      final profilePicturePath = userData['profile_picture_path'] ?? 
+                                 userData['profile_picture'];
+      
+      if (profilePicturePath != null && profilePicturePath is String) {
+        print('DEBUG: Profile picture path: $profilePicturePath');
+        
         final file = File(profilePicturePath);
-        // CRITICAL FIX: Removed 'profilepicture/' prefix from storagePath
-        // The .from('profilepicture') already specifies the bucket.
+        
+        // Check if file exists before trying to upload
+        final fileExists = await file.exists();
+        print('DEBUG: File exists: $fileExists');
+        
+        if (!fileExists) {
+          throw Exception('Profile picture file not found. The temporary file may have been deleted. Please select the image again.');
+        }
+        
+        final fileSize = await file.length();
+        print('DEBUG: File size: $fileSize bytes');
+        
         final storagePath = '$userId.jpg';
         print('DEBUG: Attempting to upload file to storagePath: $storagePath');
-        print('DEBUG: Expected filename for RLS check (should match storagePath): ${user.id}.jpg');
+        print('DEBUG: Expected filename for RLS check: ${user.id}.jpg');
 
         try {
-          // The bucket name is specified here: .from('profilepicture')
-          await client.storage.from('profilepicture').upload(storagePath, file,
-              fileOptions: const supabase.FileOptions(upsert: true));
-          profilePictureUrl = client.storage.from('profilepicture').getPublicUrl(storagePath);
+          // Upload to Supabase Storage
+          await client.storage.from('profilepicture').upload(
+            storagePath, 
+            file,
+            fileOptions: const supabase.FileOptions(
+              upsert: true,
+              contentType: 'image/jpeg',
+            ),
+          );
+          
+          // Get the public URL with a timestamp to avoid caching issues
+          final timestamp = DateTime.now().millisecondsSinceEpoch;
+          profilePictureUrl = '${client.storage.from('profilepicture').getPublicUrl(storagePath)}?t=$timestamp';
+          
           print('DEBUG: Profile picture uploaded successfully! URL: $profilePictureUrl');
+          
         } on supabase.StorageException catch (e) {
           print('ERROR: Supabase Storage Exception during upload: ${e.message} (Status: ${e.statusCode})');
           throw Exception('Failed to upload profile picture: ${e.message}');
@@ -80,6 +108,8 @@ class SignupProvider with ChangeNotifier {
           print('ERROR: General file upload error: ${e.toString()}');
           throw Exception('Failed to upload profile picture: ${e.toString()}');
         }
+      } else {
+        print('WARNING: No profile picture path found in userData');
       }
 
       // Prepare data for upsert
@@ -100,12 +130,23 @@ class SignupProvider with ChangeNotifier {
 
       if (profilePictureUrl != null) {
         dataToInsert['profile_picture'] = profilePictureUrl;
+        dataToInsert['profile_picture_url'] = profilePictureUrl;
       }
 
       // Insert or update user profile in users table
       final response = await client.from('users').upsert(dataToInsert, onConflict: 'user_id');
 
       print('User profile upsert response: $response');
+      
+      // Clean up temporary files only after successful save
+      // This ensures the files are available throughout the signup process
+      try {
+        await ImageCompressionUtil.cleanupTempFiles();
+        print('DEBUG: Cleaned up temporary image files after successful signup');
+      } catch (e) {
+        print('WARNING: Failed to clean up temp files: $e');
+        // Don't fail the whole operation if cleanup fails
+      }
 
     } on supabase.AuthException catch (e) {
       throw Exception('Authentication error during profile save: ${e.message}');
@@ -113,8 +154,7 @@ class SignupProvider with ChangeNotifier {
       print('Supabase Postgrest Error during profile save: ${e.message} (Code: ${e.code})');
       throw Exception('Database error saving profile: ${e.message}');
     } catch (e) {
-      throw Exception('General error saving profile: ${e.toString()}');
+      throw Exception('Error saving profile: ${e.toString()}');
     }
   }
 }
-

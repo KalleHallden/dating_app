@@ -1,4 +1,4 @@
-// lib/utils/image_compression.dart
+// lib/services/image_compression.dart
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
@@ -16,16 +16,37 @@ class ImageCompressionUtil {
   // Add a static method to clean up temporary files
   static Future<void> cleanupTempFiles() async {
     try {
+      // Clean up from temporary directory
       final Directory tempDir = await getTemporaryDirectory();
-      final List<FileSystemEntity> files = tempDir.listSync();
+      final List<FileSystemEntity> tempFiles = tempDir.listSync();
       
-      for (FileSystemEntity file in files) {
+      for (FileSystemEntity file in tempFiles) {
         if (file is File && file.path.contains('compressed_')) {
           try {
             await file.delete();
             print('Deleted temp file: ${file.path}');
           } catch (e) {
             print('Error deleting temp file: $e');
+          }
+        }
+      }
+      
+      // Also clean up from app documents directory
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final List<FileSystemEntity> appFiles = appDir.listSync();
+      
+      for (FileSystemEntity file in appFiles) {
+        if (file is File && file.path.contains('compressed_')) {
+          try {
+            // Only delete compressed files older than 1 hour to avoid deleting files in use
+            final fileStat = await file.stat();
+            final fileAge = DateTime.now().difference(fileStat.modified);
+            if (fileAge.inHours > 1) {
+              await file.delete();
+              print('Deleted old compressed file: ${file.path}');
+            }
+          } catch (e) {
+            print('Error deleting app file: $e');
           }
         }
       }
@@ -39,8 +60,8 @@ class ImageCompressionUtil {
     File? tempFile;
     
     try {
-      // Clean up old temp files first
-      await cleanupTempFiles();
+      // Don't clean up old temp files here during signup process
+      // They might be needed for upload
       
       // Read the image file
       final File file = File(imageFile.path);
@@ -49,12 +70,14 @@ class ImageCompressionUtil {
       final int fileSize = await file.length();
       print('Original image size: ${_formatBytes(fileSize)}');
       
+      // Get the app's document directory for more persistent storage
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final File targetFile = File(path.join(appDir.path, fileName));
+      
       // If file is already small enough, just copy it
       if (fileSize <= MAX_FILE_SIZE) {
-        print('Image already within size limit, copying without compression');
-        final Directory tempDir = await getTemporaryDirectory();
-        final String fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
-        final File targetFile = File(path.join(tempDir.path, fileName));
+        print('Image already within size limit, copying to app directory');
         return await file.copy(targetFile.path);
       }
       
@@ -98,12 +121,12 @@ class ImageCompressionUtil {
       print('Compressed image size: ${_formatBytes(compressedBytes.length)} '
             '(${((1 - compressedBytes.length / originalSize) * 100).toStringAsFixed(1)}% reduction)');
       
-      // Save compressed image to a temporary file
-      final Directory tempDir = await getTemporaryDirectory();
-      final String fileName = 'compressed_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      tempFile = File(path.join(tempDir.path, fileName));
+      // Save compressed image to app documents directory
+      tempFile = targetFile;
       
       await tempFile.writeAsBytes(compressedBytes);
+      
+      print('Compressed image saved to: ${tempFile.path}');
       
       // Clear the compressed bytes from memory
       compressedBytes = null;
@@ -239,16 +262,12 @@ class ImageCompressionUtil {
       // Compress
       final compressedFile = await compressImage(imageFile);
       
-      // Schedule cleanup after a delay
-      Future.delayed(const Duration(minutes: 5), () {
-        cleanupTempFiles();
-      });
+      // Don't schedule cleanup here - let the signup provider handle it
+      // after successful upload
       
       return compressedFile;
     } catch (e) {
       print('Safe compression failed: $e');
-      // Try cleanup on error
-      await cleanupTempFiles();
       return null;
     }
   }

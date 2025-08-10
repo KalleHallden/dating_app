@@ -44,7 +44,7 @@ class CallService {
           .from('calls')
           .update({
             'status': status,
-            'updated_at': DateTime.now().toIso8601String(),
+            // REMOVED: Don't set updated_at - let database handle it
           })
           .eq('id', callId);
 
@@ -62,7 +62,7 @@ class CallService {
           .from('calls')
           .update({
             'status': 'active',
-            'updated_at': DateTime.now().toIso8601String(),
+            // REMOVED: Don't set updated_at - let database handle it
           })
           .eq('id', callId)
           .eq('status', 'ringing'); // Only update if still ringing
@@ -81,8 +81,8 @@ class CallService {
           .from('calls')
           .update({
             'status': 'ended',
-            'ended_at': DateTime.now().toIso8601String(),
-            'updated_at': DateTime.now().toIso8601String(),
+            // CRITICAL FIX: Don't set ended_at or updated_at
+            // Let the database trigger handle timestamps
           })
           .eq('id', callId);
 
@@ -96,26 +96,26 @@ class CallService {
   // Get active call for user
   Future<Map<String, dynamic>?> getActiveCallForUser(String userId) async {
     try {
-	final response = await _client
-    .from('calls')
-    .select('''
-      *,
-      caller:users!calls_caller_id_fkey(
-        user_id,
-        name,
-        profile_picture_url
-      ),
-      called:users!calls_called_id_fkey(
-        user_id,
-        name,
-        profile_picture_url
-      )
-    ''')
-    .or('caller_id.eq.$userId,called_id.eq.$userId')
-    .inFilter('status', ['ringing', 'active'])
-    .order('created_at', ascending: false)
-    .limit(1)
-    .maybeSingle();
+      final response = await _client
+          .from('calls')
+          .select('''
+            *,
+            caller:users!calls_caller_id_fkey(
+              user_id,
+              name,
+              profile_picture_url
+            ),
+            called:users!calls_called_id_fkey(
+              user_id,
+              name,
+              profile_picture_url
+            )
+          ''')
+          .or('caller_id.eq.$userId,called_id.eq.$userId')
+          .inFilter('status', ['ringing', 'active'])
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
       return response;
     } catch (e) {
       print('Error fetching active call: $e');
@@ -130,7 +130,8 @@ class CallService {
   }
 
   // Get call history for user
-  Future<List<Map<String, dynamic>>> getCallHistory(String userId, {int limit = 20}) async {
+  Future<List<Map<String, dynamic>>> getCallHistory(String userId,
+      {int limit = 20}) async {
     try {
       final response = await _client
           .from('calls')
@@ -158,35 +159,37 @@ class CallService {
     }
   }
 
-supabase.RealtimeChannel subscribeToCallUpdates(String callId, {
-  required Function(Map<String, dynamic>) onUpdate,
-}) {
-  return _client
-      .channel('call-updates-$callId')
-      .onPostgresChanges(
-        event: supabase.PostgresChangeEvent.update,
-        schema: 'public',
-        table: 'calls',
-        filter: supabase.PostgresChangeFilter(
-          type: supabase.PostgresChangeFilterType.eq,
-          column: 'id',
-          value: callId,
-        ),
-        callback: (payload) {
-          onUpdate(payload.newRecord);
-        },
-      )
-      .subscribe();
-}
+  supabase.RealtimeChannel subscribeToCallUpdates(
+    String callId, {
+    required Function(Map<String, dynamic>) onUpdate,
+  }) {
+    return _client
+        .channel('call-updates-$callId')
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'calls',
+          filter: supabase.PostgresChangeFilter(
+            type: supabase.PostgresChangeFilterType.eq,
+            column: 'id',
+            value: callId,
+          ),
+          callback: (payload) {
+            onUpdate(payload.newRecord);
+          },
+        )
+        .subscribe();
+  }
+
   // Calculate call duration
   Duration? getCallDuration(Map<String, dynamic> call) {
     if (call['created_at'] == null) return null;
-    
+
     final startTime = DateTime.parse(call['created_at']);
-    final endTime = call['ended_at'] != null 
+    final endTime = call['ended_at'] != null
         ? DateTime.parse(call['ended_at'])
         : DateTime.now();
-        
+
     return endTime.difference(startTime);
   }
 

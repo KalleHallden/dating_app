@@ -1,12 +1,13 @@
+// lib/pages/call_page.dart
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase; // Import Supabase
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:amplify_app/pages/home_page.dart';
-import 'package:amplify_app/pages/join_call_page.dart'; // CORRECTED: This import is for JoinChannelAudio
-import '../services/call_service.dart'; // Add this import
+import 'package:amplify_app/pages/join_call_page.dart';
+import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';
 
@@ -25,11 +26,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   // Add CallService instance
   final CallService _callService = CallService();
 
-  bool _isConnecting = true; // State for initial Supabase connection/setup
+  bool _isConnecting = true;
   bool _isCallActive = false;
   bool _isLeavingCall = false;
-  String? _currentSupabaseCallId; // The UUID from the Supabase 'calls' table
-  String? _agoraChannelId;      // The channel ID to be used by Agora (from matchmaker)
+  String? _currentSupabaseCallId;
+  String? _agoraChannelId;
   String? _matchedUserName;
   String? _matchedUserProfilePicture;
   final bool _debug = true;
@@ -45,6 +46,13 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   // Store the partner ID for like/dislike functionality
   String? _partnerId;
+  
+  // New fields for time limits
+  int _remainingMonthlyMinutes = 50;
+  Timer? _callDurationTimer;
+  int _callSecondsRemaining = 300; // 5 minutes in seconds
+  bool _showTimeWarning = false;
+  bool _outOfMinutes = false;
 
   final List<String> options = [
     "go skiing or snorkelling?",
@@ -88,21 +96,42 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       ),
     ));
     
-    _setupSupabaseIntegration(); // Initialize Supabase Realtime and matchmaking
+    _setupSupabaseIntegration();
+    _loadRemainingMinutes(); // Load user's remaining minutes
   }
 
   @override
   void dispose() {
     _progressController.dispose();
     _progressTimer?.cancel();
-    _userChannel.unsubscribe(); // Unsubscribe from Realtime channel
-    // Set user as available when leaving call
+    _callDurationTimer?.cancel();
+    _userChannel.unsubscribe();
     OnlineStatusService().setInCall(false);
     super.dispose();
   }
 
   void safePrint(String msg) {
     if (_debug) print('${DateTime.now().toIso8601String()}: $msg');
+  }
+
+  Future<void> _loadRemainingMinutes() async {
+    final currentUser = _supabaseClient.auth.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      final response = await _supabaseClient.rpc('get_user_remaining_minutes', params: {
+        'p_user_id': currentUser.id,
+      });
+      
+      if (mounted) {
+        setState(() {
+          _remainingMonthlyMinutes = response ?? 0;
+          _outOfMinutes = _remainingMonthlyMinutes < 5; // Need at least 5 minutes for a call
+        });
+      }
+    } catch (e) {
+      safePrint('Error loading remaining minutes: $e');
+    }
   }
 
   void _startProgressAnimation() {
@@ -120,6 +149,72 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Force rebuild to update blur
       });
     });
+    
+    // Start call duration countdown
+    _startCallDurationTimer();
+  }
+
+  void _startCallDurationTimer() {
+    _callSecondsRemaining = 300; // Reset to 5 minutes
+    _showTimeWarning = false;
+    
+    _callDurationTimer?.cancel();
+    _callDurationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      
+      setState(() {
+        _callSecondsRemaining--;
+        
+        // Show warning at 30 seconds remaining
+        if (_callSecondsRemaining == 30 && !_showTimeWarning) {
+          _showTimeWarning = true;
+          _showCallEndingWarning();
+        }
+        
+        // Auto-end call at 0 seconds
+        if (_callSecondsRemaining <= 0) {
+          timer.cancel();
+          _autoEndCall();
+        }
+      });
+    });
+  }
+
+  void _showCallEndingWarning() {
+    if (!mounted) return;
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Call ending in 30 seconds...'),
+        duration: Duration(seconds: 5),
+        backgroundColor: Colors.orange,
+      ),
+    );
+  }
+
+  Future<void> _autoEndCall() async {
+    safePrint('Auto-ending call after 5 minutes');
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Call time limit reached (5 minutes)'),
+          duration: Duration(seconds: 3),
+          backgroundColor: Colors.blue,
+        ),
+      );
+    }
+    
+    await _leaveCall();
+  }
+
+  String _formatCallTime() {
+    final minutes = (_callSecondsRemaining ~/ 60);
+    final seconds = (_callSecondsRemaining % 60);
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   /// Sets up Supabase Realtime listener and initiates the initial state clear and matchmaking join.
@@ -129,29 +224,24 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     final currentUser = _supabaseClient.auth.currentUser;
     if (currentUser == null) {
       safePrint('Error: Supabase user not authenticated. Cannot set up Realtime.');
-      // Handle scenario where user is not logged in, e.g., navigate back to AuthScreen
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
-          MaterialPageRoute(builder: (_) => const HomePage()), // Or AuthScreen
+          MaterialPageRoute(builder: (_) => const HomePage()),
           (_) => false,
         );
       }
       return;
     }
 
-    // Subscribe to a private channel for the current user to receive messages
-    // The channel name must match what your Edge Functions broadcast to: 'user:<userId>'
     _userChannel = _supabaseClient.channel('user:${currentUser.id}');
-    // Use onBroadcast with a callback that receives a Map<String, dynamic>
     _userChannel.onBroadcast(
-      event: '*', // Listen to all broadcast events
+      event: '*',
       callback: (payload) => _onSupabaseRealtimeMessage(payload),
     );
-    _userChannel.subscribe(); // Don't forget to call subscribe on the channel
+    _userChannel.subscribe();
     safePrint('Supabase Realtime: Subscribed to user channel: user:${currentUser.id}');
 
-    // Clear state and wait for completion before proceeding
     safePrint('Attempting to send clearState request from Flutter...');
     await _sendClearState();
     safePrint('clearState request sent from Flutter. Waiting for Realtime confirmation...');
@@ -159,8 +249,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   /// Handles incoming broadcast messages from Supabase Realtime.
   Future<void> _onSupabaseRealtimeMessage(Map<String, dynamic> payload) async {
-    safePrint('← Received raw Realtime payload: $payload'); // Access payload data
-    // Extract the nested payload containing the action
+    safePrint('← Received raw Realtime payload: $payload');
     final Map<String, dynamic> message = payload['payload'] as Map<String, dynamic>;
 
     safePrint('← Parsed Realtime message: $message');
@@ -170,9 +259,27 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         safePrint('Supabase Realtime: State cleared confirmation received.');
         if (mounted) {
           setState(() => _isConnecting = false);
-          safePrint('Calling _joinMatchmaking() after stateCleared confirmation.');
-          _joinMatchmaking(); // Proceed to join matchmaking after state is cleared
+          
+          // Check if user has minutes before joining matchmaking
+          if (_outOfMinutes) {
+            _showOutOfMinutesDialog();
+          } else {
+            safePrint('Calling _joinMatchmaking() after stateCleared confirmation.');
+            _joinMatchmaking();
+          }
         }
+        return;
+
+      case 'outOfMinutes':
+        safePrint('Supabase Realtime: Out of minutes notification received.');
+        if (!mounted) return;
+        
+        setState(() {
+          _outOfMinutes = true;
+          _remainingMonthlyMinutes = message['remainingMinutes'] ?? 0;
+        });
+        
+        _showOutOfMinutesDialog();
         return;
 
       case 'leftCall':
@@ -189,9 +296,12 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         });
         _progressController.stop();
         _progressTimer?.cancel();
-        // Set user as available when call ends
+        _callDurationTimer?.cancel();
         OnlineStatusService().setInCall(false);
-        // Navigate back to HomePage after successfully leaving the call
+        
+        // Reload remaining minutes after call
+        await _loadRemainingMinutes();
+        
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
@@ -203,47 +313,59 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         safePrint('Supabase Realtime: Call initiated! Details: $message');
         if (!mounted) return;
 
-        // Extract call details from the payload
         _currentSupabaseCallId = message['callId'] as String;
-        _agoraChannelId = message['channelId'] as String; // This is the Agora channel ID
+        _agoraChannelId = message['channelId'] as String;
         final String partnerId = message['partnerId'] as String;
-        _partnerId = partnerId; // Store the partner ID
+        _partnerId = partnerId;
         final String role = message['role'] as String? ?? 'unknown';
+        
+        // Update remaining minutes from message
+        if (message['remainingMinutes'] != null) {
+          setState(() {
+            _remainingMonthlyMinutes = message['remainingMinutes'] as int;
+          });
+        }
 
-        // Fetch partner's profile information from the 'users' table
+        // Fetch partner's profile information
         try {
           final partnerData = await _supabaseClient
               .from('users')
-              .select('name, profile_picture') // Changed from profile_picture_url to profile_picture
+              .select('name, profile_picture')
               .eq('user_id', partnerId)
-              .maybeSingle(); // Use maybeSingle as partner might not exist or data is incomplete
+              .maybeSingle();
 
           if (partnerData != null) {
             setState(() {
               _matchedUserName = partnerData['name'] as String?;
               _matchedUserProfilePicture = partnerData['profile_picture'] as String?;
-              _isCallActive = true; // Mark call as active
+              _isCallActive = true;
             });
             safePrint('Matched with: $_matchedUserName (ID: $partnerId) as $role');
-            safePrint('Profile picture URL: $_matchedUserProfilePicture'); // Debug log
+            safePrint('Profile picture URL: $_matchedUserProfilePicture');
             
-            // Start the progress animation when call is initiated
             _startProgressAnimation();
-            
-            // Set user as in call (not available and not online)
             OnlineStatusService().setInCall(true);
             
-            // Update call status to active if both users have joined
             if (role == 'called') {
               await _callService.markCallAsActive(_currentSupabaseCallId!);
             }
+            
+            // Show call info with time limit
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Call started! Maximum duration: 5 minutes. Monthly minutes remaining: $_remainingMonthlyMinutes'),
+                  duration: const Duration(seconds: 5),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
           } else {
             safePrint('Warning: Partner data not found for ID: $partnerId');
-            // Handle case where partner data is missing or incomplete
             setState(() {
               _matchedUserName = 'Unknown User';
               _matchedUserProfilePicture = null;
-              _isCallActive = true; // Still activate call, but with limited info
+              _isCallActive = true;
             });
             _startProgressAnimation();
           }
@@ -268,9 +390,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         });
         _progressController.stop();
         _progressTimer?.cancel();
-        // Set user as available when call ends
+        _callDurationTimer?.cancel();
         OnlineStatusService().setInCall(false);
-        // Navigate back to HomePage
+        
+        await _loadRemainingMinutes();
+        
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
@@ -284,7 +408,6 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         
         final partnerName = message['partnerName'] as String? ?? 'User';
         
-        // Show notification that partner left
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$partnerName left the phone call'),
@@ -293,7 +416,6 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           ),
         );
         
-        // Reset call state
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
@@ -306,15 +428,24 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         
         _progressController.stop();
         _progressTimer?.cancel();
+        _callDurationTimer?.cancel();
         
-        // Set user as available
         OnlineStatusService().setInCall(false);
         
-        // Automatically rejoin matchmaking
+        await _loadRemainingMinutes();
+        
+        // Automatically rejoin matchmaking after a short delay
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
             setState(() => _isConnecting = false);
-            _joinMatchmaking();
+            
+            // Check if user has minutes before rejoining
+            if (_outOfMinutes) {
+              _showOutOfMinutesDialog();
+            } else {
+              safePrint('Partner left - rejoining matchmaking');
+              _joinMatchmaking();
+            }
           }
         });
         
@@ -326,6 +457,37 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     }
   }
 
+  void _showOutOfMinutesDialog() {
+    if (!mounted) return;
+    
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Out of Minutes'),
+        content: Text(
+          'You have used all $_remainingMonthlyMinutes of your available minutes for this month.\n\n'
+          'Your minutes will reset at the beginning of next month.'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const HomePage()),
+                (_) => false,
+              );
+            },
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+
+
   /// Sends a request to the `user_state_handler` Edge Function.
   Future<void> _sendSupabaseFunctionAction(String action, {Map<String, dynamic>? data}) async {
     final currentUser = _supabaseClient.auth.currentUser;
@@ -336,14 +498,14 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
     final Map<String, dynamic> body = {
       'action': action,
-      'userId': currentUser.id, // Supabase Auth user ID (UUID)
-      ...?data, // Include any additional data provided
+      'userId': currentUser.id,
+      ...?data,
     };
 
     try {
       safePrint('→ Invoking Edge Function: $action with body: $body');
       final response = await _supabaseClient.functions.invoke(
-        'user_state_handler', // The name of your primary Edge Function
+        'user_state_handler',
         body: body,
         headers: {
           'Content-Type': 'application/json',
@@ -354,23 +516,19 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
       if (response.status != 200) {
         safePrint('Error invoking Edge Function "$action": ${response.data}');
-        // You might want to show a Snackbar or dialog to the user
       }
     } catch (e) {
       safePrint('Exception while invoking Edge Function "$action": $e');
-      // Handle network errors or other exceptions
     }
   }
 
-  /// Clears the user's state on the backend.
   Future<void> _sendClearState() async {
     await _sendSupabaseFunctionAction('clearState');
   }
 
-  /// Initiates matchmaking by calling the Edge Function.
   void _joinMatchmaking() {
-    if (_isCallActive || _isLeavingCall) return;
-    setState(() => _currentSupabaseCallId = null); // Clear any previous call ID
+    if (_isCallActive || _isLeavingCall || _outOfMinutes) return;
+    setState(() => _currentSupabaseCallId = null);
 
     safePrint('Attempting to send joinMatchmaking request from Flutter...');
     _sendSupabaseFunctionAction(
@@ -383,10 +541,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     safePrint('joinMatchmaking request sent from Flutter.');
   }
 
-  /// Requests the backend to end the current call.
   Future<void> _leaveCall() async {
     if (_currentSupabaseCallId == null) {
-      // If no call ID, just navigate back to home
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
@@ -399,10 +555,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
     setState(() => _isLeavingCall = true);
 
-    // Set user as available when leaving call
     OnlineStatusService().setInCall(false);
 
-    // Update call status in database
     await _callService.endCall(_currentSupabaseCallId!);
 
     await _sendSupabaseFunctionAction(
@@ -411,9 +565,6 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         'callId': _currentSupabaseCallId,
       },
     );
-
-    // The Realtime listener will handle setting _isCallActive = false and navigation
-    // once the 'leftCall' message is received from the backend.
   }
 
   void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
@@ -426,6 +577,66 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       return const Scaffold(
         body: Center(
           child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    // Out of minutes
+    if (_outOfMinutes && !_isCallActive) {
+      return Scaffold(
+        appBar: AppBar(
+          leading: BackButton(onPressed: () {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const HomePage()),
+              (_) => false,
+            );
+          }),
+          title: const Text(''),
+          elevation: 0,
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.timer_off,
+                  size: 80,
+                  color: Colors.grey,
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Out of Minutes',
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'You have $_remainingMonthlyMinutes minutes remaining this month.',
+                  style: const TextStyle(fontSize: 16),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Your minutes will reset at the beginning of next month.',
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 32),
+                ElevatedButton(
+                  onPressed: () {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const HomePage()),
+                      (_) => false,
+                    );
+                  },
+                  child: const Text('Go Back'),
+                ),
+              ],
+            ),
+          ),
         ),
       );
     }
@@ -463,12 +674,17 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text('searching', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                const SizedBox(height: 8),
+                Text(
+                  'Minutes remaining: $_remainingMonthlyMinutes',
+                  style: TextStyle(fontSize: 12, color: Colors.blue[600]),
+                ),
                 const SizedBox(height: 16),
                 CircularProgressIndicator(color: Theme.of(context).primaryColor),
                 const SizedBox(height: 24),
                 SingleChildScrollView(
                   child: Text(
-                    _currentSupabaseCallId == null // Checks if we failed to get a call ID after searching
+                    _currentSupabaseCallId == null
                         ? '''Wu wei (無為)
 Means "effortless action". The art of not forcing anything. You are who you are and they will be who they will be. You like what you like and they will like what they will like. You might not be what they like and they might not be what you like. Some people like cats, some people like dogs. You can't be a cat and a dog. You can't be red and blue.
 
@@ -561,23 +777,83 @@ Don't try to be someone else's match, try to find yours.'''
               );
             },
           ),
+          // Top bar with name and timer
           Positioned(
             top: 40,
             left: 20,
-            child: Text(
-              _matchedUserName ?? '',
-              style: const TextStyle(fontSize: 24, color: Colors.white, fontWeight: FontWeight.bold),
+            right: 20,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _matchedUserName ?? '',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Call timer
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: _callSecondsRemaining <= 30 
+                            ? Colors.orange.withOpacity(0.8)
+                            : Colors.black.withOpacity(0.6),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        _formatCallTime(),
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: _callSecondsRemaining <= 30 
+                              ? Colors.white
+                              : Colors.white70,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                ElevatedButton(
+                  onPressed: _leaveCall,
+                  style: ButtonStyle(
+                    backgroundColor: MaterialStateProperty.all(Colors.red),
+                  ),
+                  child: const Text('Leave', style: TextStyle(color: Colors.white)),
+                ),
+              ],
             ),
           ),
+          // Minutes remaining indicator
           Positioned(
-            top: 40,
-            right: 20,
-            child: ElevatedButton(
-              onPressed: _leaveCall,
-              style: ButtonStyle(
-                backgroundColor: MaterialStateProperty.all(Colors.red),
+            top: 120,
+            left: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.8),
+                borderRadius: BorderRadius.circular(16),
               ),
-              child: const Text('Leave', style: TextStyle(color: Colors.white)),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.timer, color: Colors.white, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$_remainingMonthlyMinutes min/month',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           // Pass the Agora channel ID and call ID to JoinChannelAudio
@@ -602,7 +878,6 @@ Don't try to be someone else's match, try to find yours.'''
                     ManagedLikeDislikeButtons(
                       targetUserId: _partnerId!,
                       onMatched: () {
-                        // Handle match celebration if needed
                         print('Match celebration for call with $_partnerId');
                       },
                     ),
