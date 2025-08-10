@@ -38,32 +38,66 @@ class LikeDislikeManager {
     await _checkInitialStates();
   }
   
+  // Add method to force refresh state (call when starting a new call)
+  Future<void> refreshState() async {
+    await _checkInitialStates();
+  }
+  
+  // Add method to clear cached instance
+  static void clearCacheForUser(String targetUserId) {
+    final instance = _instances[targetUserId];
+    if (instance != null) {
+      instance.dispose();
+      _instances.remove(targetUserId);
+    }
+  }
+  
+  // Add method to clear all cached instances
+  static void clearAllCache() {
+    for (final instance in _instances.values) {
+      instance.dispose();
+    }
+    _instances.clear();
+  }
+  
   Future<void> _checkInitialStates() async {
     final client = SupabaseClient.instance.client;
     final currentUser = client.auth.currentUser;
     if (currentUser == null) return;
     
-    // Check for existing like
-    final existingLike = await client
-        .from('likes')
-        .select()
-        .eq('liker_id', currentUser.id)
-        .eq('liked_id', targetUserId)
-        .maybeSingle();
-    
-    // Check for existing dislike
-    final existingDislike = await client
-        .from('dislikes')
-        .select()
-        .eq('disliker_id', currentUser.id)
-        .eq('disliked_id', targetUserId)
-        .maybeSingle();
-    
-    _isLiked = existingLike != null;
-    _isDisliked = existingDislike != null;
-    
-    _likeStateController.add(_isLiked);
-    _dislikeStateController.add(_isDisliked);
+    try {
+      // Check for existing like
+      final existingLike = await client
+          .from('likes')
+          .select()
+          .eq('liker_id', currentUser.id)
+          .eq('liked_id', targetUserId)
+          .maybeSingle();
+      
+      // Check for existing dislike
+      final existingDislike = await client
+          .from('dislikes')
+          .select()
+          .eq('disliker_id', currentUser.id)
+          .eq('disliked_id', targetUserId)
+          .maybeSingle();
+      
+      _isLiked = existingLike != null;
+      _isDisliked = existingDislike != null;
+      
+      // Always emit the current state to update UI
+      _likeStateController.add(_isLiked);
+      _dislikeStateController.add(_isDisliked);
+      
+      print('LikeDislikeManager: Refreshed state for $targetUserId - liked: $_isLiked, disliked: $_isDisliked');
+    } catch (e) {
+      print('Error checking initial states: $e');
+      // On error, assume no likes/dislikes
+      _isLiked = false;
+      _isDisliked = false;
+      _likeStateController.add(false);
+      _dislikeStateController.add(false);
+    }
   }
   
   Future<bool> toggleLike() async {
@@ -218,6 +252,6 @@ class LikeDislikeManager {
     _likeStateController.close();
     _dislikeStateController.close();
     _matchRemovedController.close();
-    _instances.remove(targetUserId);
+    // Don't remove from instances here - let clearCacheForUser handle it
   }
 }

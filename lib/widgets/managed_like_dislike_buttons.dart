@@ -28,11 +28,30 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
   late final LikeDislikeManager _manager;
   supabase.RealtimeChannel? _matchChannel;
   supabase.RealtimeChannel? _matchDeleteChannel;
+  bool _isInitialized = false;
 
   @override
   void initState() {
     super.initState();
+    _initializeManager();
+  }
+  
+  Future<void> _initializeManager() async {
+    // Clear any existing cache for this user first
+    LikeDislikeManager.clearCacheForUser(widget.targetUserId);
+    
+    // Create a fresh manager instance
     _manager = LikeDislikeManager.forUser(widget.targetUserId);
+    
+    // Force refresh the state to ensure we have the latest data
+    await _manager.refreshState();
+    
+    if (mounted) {
+      setState(() {
+        _isInitialized = true;
+      });
+    }
+    
     _subscribeToMatches();
     _subscribeToMatchRemovals();
     
@@ -51,10 +70,36 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
   }
 
   @override
+  void didUpdateWidget(ManagedLikeDislikeButtons oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // If the target user changed, reinitialize
+    if (oldWidget.targetUserId != widget.targetUserId) {
+      _reinitialize();
+    }
+  }
+  
+  Future<void> _reinitialize() async {
+    // Unsubscribe from old channels
+    _matchChannel?.unsubscribe();
+    _matchDeleteChannel?.unsubscribe();
+    
+    // Clear old manager cache
+    LikeDislikeManager.clearCacheForUser(widget.targetUserId);
+    
+    // Reinitialize with new user
+    setState(() {
+      _isInitialized = false;
+    });
+    
+    await _initializeManager();
+  }
+
+  @override
   void dispose() {
     _matchChannel?.unsubscribe();
     _matchDeleteChannel?.unsubscribe();
-    // Don't dispose the manager here as it might be used elsewhere
+    // Clear the cache when disposing
+    LikeDislikeManager.clearCacheForUser(widget.targetUserId);
     super.dispose();
   }
 
@@ -66,9 +111,9 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
 
     print('Setting up match subscription for user: ${currentUser.id}');
 
-    // Subscribe to match notifications
+    // Subscribe to match notifications with unique channel name
     _matchChannel = client
-        .channel('match-notifications-${currentUser.id}-${widget.targetUserId}')
+        .channel('match-notifications-${currentUser.id}-${widget.targetUserId}-${DateTime.now().millisecondsSinceEpoch}')
         .onPostgresChanges(
           event: supabase.PostgresChangeEvent.insert,
           schema: 'public',
@@ -112,9 +157,9 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
 
     print('Setting up match removal subscription for user: ${currentUser.id}');
 
-    // Subscribe to match deletion notifications
+    // Subscribe to match deletion notifications with unique channel name
     _matchDeleteChannel = client
-        .channel('match-delete-${currentUser.id}-${widget.targetUserId}')
+        .channel('match-delete-${currentUser.id}-${widget.targetUserId}-${DateTime.now().millisecondsSinceEpoch}')
         .onPostgresChanges(
           event: supabase.PostgresChangeEvent.delete,
           schema: 'public',
@@ -134,6 +179,9 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
             if (involvesCurrentUser && involvesTargetUser) {
               print('Match removed! Notifying user.');
               
+              // Refresh the manager state
+              _manager.refreshState();
+              
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(
@@ -151,6 +199,48 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_isInitialized) {
+      // Show loading state while initializing
+      return Padding(
+        padding: EdgeInsets.symmetric(horizontal: widget.spacing, vertical: 8),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Container(
+              width: widget.buttonSize,
+              height: widget.buttonSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.9),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+            Container(
+              width: widget.buttonSize,
+              height: widget.buttonSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.9),
+              ),
+              child: const Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: widget.spacing, vertical: 8),
       child: Row(

@@ -10,6 +10,7 @@ import 'package:amplify_app/pages/join_call_page.dart';
 import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';
+import '../services/like_dislike_manager.dart';
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -46,6 +47,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   // Store the partner ID for like/dislike functionality
   String? _partnerId;
+  String? _lastPartnerId; // Track last partner for cache clearing
   
   // New fields for time limits
   int _remainingMonthlyMinutes = 50;
@@ -107,6 +109,15 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _callDurationTimer?.cancel();
     _userChannel.unsubscribe();
     OnlineStatusService().setInCall(false);
+    
+    // Clear the cache when leaving the call page
+    if (_partnerId != null) {
+      LikeDislikeManager.clearCacheForUser(_partnerId!);
+    }
+    if (_lastPartnerId != null && _lastPartnerId != _partnerId) {
+      LikeDislikeManager.clearCacheForUser(_lastPartnerId!);
+    }
+    
     super.dispose();
   }
 
@@ -285,6 +296,12 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'leftCall':
         safePrint('Supabase Realtime: Left call confirmation received.');
         if (!mounted) return;
+        
+        // Clear cache when leaving call
+        if (_partnerId != null) {
+          LikeDislikeManager.clearCacheForUser(_partnerId!);
+        }
+        
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
@@ -316,7 +333,19 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String;
         final String partnerId = message['partnerId'] as String;
+        
+        // Clear cache if this is a different partner
+        if (_lastPartnerId != null && _lastPartnerId != partnerId) {
+          LikeDislikeManager.clearCacheForUser(_lastPartnerId!);
+        }
+        
         _partnerId = partnerId;
+        _lastPartnerId = partnerId;
+        
+        // Force refresh the manager state for this partner
+        final manager = LikeDislikeManager.forUser(partnerId);
+        await manager.refreshState();
+        
         final String role = message['role'] as String? ?? 'unknown';
         
         // Update remaining minutes from message
@@ -383,6 +412,12 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'callEnded':
         safePrint('Supabase Realtime: Call ended by other party.');
         if (!mounted) return;
+        
+        // Clear cache when call ends
+        if (_partnerId != null) {
+          LikeDislikeManager.clearCacheForUser(_partnerId!);
+        }
+        
         setState(() {
           _isCallActive = false;
           _currentSupabaseCallId = null;
@@ -407,6 +442,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         if (!mounted) return;
         
         final partnerName = message['partnerName'] as String? ?? 'User';
+        
+        // Clear the cache when partner leaves
+        if (_partnerId != null) {
+          LikeDislikeManager.clearCacheForUser(_partnerId!);
+        }
         
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -485,8 +525,6 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       ),
     );
   }
-
-
 
   /// Sends a request to the `user_state_handler` Edge Function.
   Future<void> _sendSupabaseFunctionAction(String action, {Map<String, dynamic>? data}) async {
@@ -873,9 +911,10 @@ Don't try to be someone else's match, try to find yours.'''
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Like and Dislike buttons
+                  // Like and Dislike buttons with unique key for cache busting
                   if (_partnerId != null)
                     ManagedLikeDislikeButtons(
+                      key: ValueKey('buttons_${_partnerId}_${_currentSupabaseCallId}'),
                       targetUserId: _partnerId!,
                       onMatched: () {
                         print('Match celebration for call with $_partnerId');
