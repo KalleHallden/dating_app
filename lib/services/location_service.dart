@@ -1,5 +1,7 @@
 // lib/services/location_service.dart
 import 'package:geocoding/geocoding.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'supabase_client.dart';
 
 class LocationService {
   static final LocationService _instance = LocationService._internal();
@@ -84,6 +86,106 @@ class LocationService {
     }
     
     return 'Invalid location';
+  }
+
+  /// Update user location and automatically detect timezone
+  Future<Map<String, dynamic>?> updateUserLocationWithTimezone({
+    required double latitude,
+    required double longitude,
+    String? userId,
+  }) async {
+    try {
+      final client = SupabaseClient.instance.client;
+      
+      // Get current user ID if not provided
+      final targetUserId = userId ?? client.auth.currentUser?.id;
+      if (targetUserId == null) {
+        throw Exception('No user ID available');
+      }
+      
+      // First, update the location in the database
+      // The database trigger will handle the timezone update
+      await client
+          .from('users')
+          .update({
+            'location': '($latitude,$longitude)',
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', targetUserId);
+      
+      print('Location updated to: ($latitude, $longitude)');
+      
+      // Also call the Edge Function to ensure timezone is updated
+      // This provides redundancy in case the trigger fails
+      final timezoneResponse = await _detectTimezoneFromCoordinates(
+        latitude: latitude,
+        longitude: longitude,
+        userId: targetUserId,
+      );
+      
+      return {
+        'location': '($latitude,$longitude)',
+        'timezone': timezoneResponse?['timezone'] ?? 'UTC',
+        'city': await getCityFromCoordinates(latitude, longitude),
+      };
+    } catch (e) {
+      print('Error updating location with timezone: $e');
+      return null;
+    }
+  }
+
+  /// Call Edge Function to detect timezone from coordinates
+  Future<Map<String, dynamic>?> _detectTimezoneFromCoordinates({
+    required double latitude,
+    required double longitude,
+    String? userId,
+  }) async {
+    try {
+      final client = SupabaseClient.instance.client;
+      
+      final response = await client.functions.invoke(
+        'get-timezone-from-location',
+        body: {
+          'lat': latitude,
+          'lon': longitude,
+          'userId': userId,
+        },
+      );
+
+      if (response.status == 200 && response.data != null) {
+        print('Timezone detected: ${response.data['timezone']}');
+        return response.data as Map<String, dynamic>;
+      } else {
+        print('Error detecting timezone: ${response.data}');
+        return null;
+      }
+    } catch (e) {
+      print('Exception detecting timezone: $e');
+      return null;
+    }
+  }
+
+  /// Get user's current timezone
+  Future<String> getUserTimezone(String? userId) async {
+    try {
+      final client = SupabaseClient.instance.client;
+      final targetUserId = userId ?? client.auth.currentUser?.id;
+      
+      if (targetUserId == null) {
+        return 'UTC';
+      }
+      
+      final response = await client
+          .from('users')
+          .select('timezone')
+          .eq('user_id', targetUserId)
+          .single();
+      
+      return response['timezone'] ?? 'UTC';
+    } catch (e) {
+      print('Error getting user timezone: $e');
+      return 'UTC';
+    }
   }
 
   /// Clear the location cache (useful if memory becomes a concern)

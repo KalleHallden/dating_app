@@ -3,6 +3,7 @@ import 'package:amplify_app/widgets/match_list_item.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
+import '../widgets/call_restriction_button.dart';
 import 'view_profile_page.dart';
 import 'waiting_call_page.dart';
 
@@ -313,7 +314,7 @@ class _MatchesPageState extends State<MatchesPage> {
   }
 
   Widget _buildMatchTile(Map<String, dynamic> match) {
-    final isAvailableForCall = match['is_online'] && match['is_available'];
+    final currentUser = SupabaseClient.instance.client.auth.currentUser;
     
     return ListTile(
       key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
@@ -375,17 +376,15 @@ class _MatchesPageState extends State<MatchesPage> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Call button
-          IconButton(
-            onPressed: isAvailableForCall ? () => _initiateCall(match) : null,
-            icon: Icon(
-              Icons.phone,
-              color: isAvailableForCall ? Colors.green : Colors.grey,
+          // Call button with restriction handling
+          if (currentUser != null)
+            CallRestrictionButton(
+              currentUserId: currentUser.id,
+              matchedUserId: match['user_id'],
+              isOnline: match['is_online'] ?? false,
+              isAvailable: match['is_available'] ?? false,
+              onCallInitiated: () => _initiateCall(match),
             ),
-            tooltip: isAvailableForCall 
-                ? 'Call ${match['name']}' 
-                : '${match['name']} is not available',
-          ),
           Icon(
             Icons.arrow_forward_ios,
             size: 16,
