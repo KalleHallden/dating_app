@@ -88,14 +88,15 @@ class _CallRestrictionButtonState extends State<CallRestrictionButton> with Sing
     try {
       final client = SupabaseClient.instance.client;
       
-      // Query for active restrictions between these two users
-      // Check both directions (user1->user2 and user2->user1)
+      // Query for active DIRECT restrictions between these two users
+      // IMPORTANT: Only check for 'direct' restriction_type, not 'random'
       final now = DateTime.now().toIso8601String();
       
       final response = await client
           .from('call_restrictions')
           .select()
           .or('and(user1_id.eq.${widget.currentUserId},user2_id.eq.${widget.matchedUserId}),and(user1_id.eq.${widget.matchedUserId},user2_id.eq.${widget.currentUserId})')
+          .eq('restriction_type', 'direct')  // ONLY check for direct restrictions
           .gt('restricted_until', now)
           .order('restricted_until', ascending: false)
           .limit(1)
@@ -105,10 +106,12 @@ class _CallRestrictionButtonState extends State<CallRestrictionButton> with Sing
         setState(() {
           if (response != null && response['restricted_until'] != null) {
             _restrictedUntil = DateTime.parse(response['restricted_until']);
+            print('Found DIRECT restriction until: $_restrictedUntil');
             // Stop pulse animation when restricted
             _pulseController.stop();
           } else {
             _restrictedUntil = null;
+            print('No DIRECT restriction found for these users');
             // Start pulse animation when available
             if (widget.isOnline && widget.isAvailable) {
               _pulseController.repeat(reverse: true);
@@ -147,12 +150,15 @@ class _CallRestrictionButtonState extends State<CallRestrictionButton> with Sing
             
             final user1Id = data['user1_id'];
             final user2Id = data['user2_id'];
+            final restrictionType = data['restriction_type'];
             
+            // Only care about DIRECT restrictions between these specific users
             final involvesUsers = 
                 (user1Id == widget.currentUserId && user2Id == widget.matchedUserId) ||
                 (user1Id == widget.matchedUserId && user2Id == widget.currentUserId);
             
-            if (involvesUsers) {
+            if (involvesUsers && restrictionType == 'direct') {
+              print('Direct restriction update detected, refreshing...');
               _checkRestriction();
             }
           },
