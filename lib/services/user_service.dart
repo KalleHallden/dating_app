@@ -10,8 +10,9 @@ class UserService {
     // Get the authenticated User Pool ID
     final user = await Amplify.Auth.getCurrentUser();
     final userId = user.userId; // Cognito User Pool ID
-    final storagePath = StoragePath.fromIdentityId((String identityId) => 'profile-pictures/$identityId/profile.jpg');
-    
+    final storagePath = StoragePath.fromIdentityId(
+        (String identityId) => 'profile-pictures/$identityId/profile.jpg');
+
     try {
       safePrint('User Pool ID: $userId');
       safePrint('Uploading to: profile-pictures/$userId/profile.jpg');
@@ -58,13 +59,15 @@ class UserService {
 
     safePrint('User Pool ID from Cognito: $userId');
     safePrint('Session signed in: ${session.isSignedIn}');
-    
+
     // Upload profile picture
     final profilePictureUrl = await _uploadProfilePicture(profilePicture);
 
     // Check if user exists
-    final getUserRequest = ModelQueries.get(User.classType, UserModelIdentifier(userId: userId));
-    final getUserResponse = await Amplify.API.query(request: getUserRequest).response;
+    final getUserRequest =
+        ModelQueries.get(User.classType, UserModelIdentifier(userId: userId));
+    final getUserResponse =
+        await Amplify.API.query(request: getUserRequest).response;
     final existingUser = getUserResponse.data;
 
     if (existingUser == null) {
@@ -80,8 +83,10 @@ class UserService {
         aboutMe: aboutMe,
         called: null,
       );
-      final createRequest = ModelMutations.create<User>(newUser, authorizationMode: authType);
-      final createResponse = await Amplify.API.mutate(request: createRequest).response;
+      final createRequest =
+          ModelMutations.create<User>(newUser, authorizationMode: authType);
+      final createResponse =
+          await Amplify.API.mutate(request: createRequest).response;
       if (createResponse.hasErrors) {
         safePrint('Create user errors: ${createResponse.errors}');
         throw Exception('Error creating user: ${createResponse.errors}');
@@ -100,8 +105,10 @@ class UserService {
         aboutMe: aboutMe,
         called: existingUser.called,
       );
-      final updateRequest = ModelMutations.update<User>(updatedUser, authorizationMode: authType);
-      final updateResponse = await Amplify.API.mutate(request: updateRequest).response;
+      final updateRequest =
+          ModelMutations.update<User>(updatedUser, authorizationMode: authType);
+      final updateResponse =
+          await Amplify.API.mutate(request: updateRequest).response;
       if (updateResponse.hasErrors) {
         safePrint('Update user errors: ${updateResponse.errors}');
         throw Exception('Error updating user: ${updateResponse.errors}');

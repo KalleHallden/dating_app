@@ -23,7 +23,7 @@ Future<void> main() async {
 
   // Initialize services
   await OnlineStatusService().initialize();
-  
+
   // Initialize the global call notification service
   await CallNotificationService().initialize();
 
@@ -50,14 +50,15 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    
+
     // Initialize session listener from Supabase
     SupabaseClient.instance.client.auth.onAuthStateChange.listen((data) {
       final event = data.event;
       final session = data.session;
 
-      print('Auth Event: $event, Session: ${session?.accessToken != null ? 'Present' : 'Null'}');
-      
+      print(
+          'Auth Event: $event, Session: ${session?.accessToken != null ? 'Present' : 'Null'}');
+
       // Update online status based on auth state
       if (event == supabase.AuthChangeEvent.signedIn && session != null) {
         OnlineStatusService().initialize();
@@ -67,7 +68,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         OnlineStatusService().dispose();
         // No need to dispose CallNotificationService - it handles auth changes internally
       }
-      
+
       if (mounted) {
         setState(() {
           _session = session;
@@ -84,7 +85,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     // Set up deep link listener for Supabase
     _setupDeepLinkListener();
-    
+
     // Initialize online status service if user is authenticated
     final session = SupabaseClient.instance.client.auth.currentSession;
     if (session != null) {
@@ -149,7 +150,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       print('Received deep link: $uri');
       try {
         // Corrected type from AuthResponse to AuthSessionUrlResponse
-        final supabase.AuthSessionUrlResponse response = await SupabaseClient.instance.client.auth.getSessionFromUrl(
+        final supabase.AuthSessionUrlResponse response =
+            await SupabaseClient.instance.client.auth.getSessionFromUrl(
           Uri.parse(uri),
         );
 
@@ -170,7 +172,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   Future<Widget> _getInitialScreen() async {
     final client = SupabaseClient.instance.client;
-    
+
     // CRITICAL: Always check the current session/user state fresh
     // Don't rely on the state variable during initial screen determination
     final currentSession = client.auth.currentSession;
@@ -226,29 +228,29 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       title: 'Dating App',
       navigatorKey: navigatorKey, // Add the navigator key here
       theme: ThemeData(
-        primaryColor: const Color(0xFF007AFF),
+        primaryColor: const Color(0xFF985021), // Brown color
         colorScheme: const ColorScheme.light(
-          primary: Color(0xFF007AFF),
-          secondary: Color(0xFF34C759),
+          primary: Color(0xFF985021), // Brown color
+          secondary: Color(0xFF34C759), // Keeping green for success states
         ),
         scaffoldBackgroundColor: Colors.white,
-        primarySwatch: const MaterialColor(
-          0xFF007AFF,
+        primarySwatch: MaterialColor(
+          0xFF985021, // Brown color
           <int, Color>{
-            50: Color(0xFFE6F0FF),
-            100: Color(0xFFB3D1FF),
-            200: Color(0xFF80B1FF),
-            300: Color(0xFF4D92FF),
-            400: Color(0xFF266EFF),
-            500: Color(0xFF007AFF),
-            600: Color(0xFF0073F0),
-            700: Color(0xFF006AD1),
-            800: Color(0xFF005AB2),
-            900: Color(0xFF004680),
+            50: const Color(0xFFF3E8E1),
+            100: const Color(0xFFE1C5B5),
+            200: const Color(0xFFCD9E84),
+            300: const Color(0xFFB97753),
+            400: const Color(0xFFAA5A2E),
+            500: const Color(0xFF985021), // Main brown
+            600: const Color(0xFF8A481D),
+            700: const Color(0xFF793E19),
+            800: const Color(0xFF693514),
+            900: const Color(0xFF4B250D),
           },
         ),
         bottomNavigationBarTheme: BottomNavigationBarThemeData(
-          selectedItemColor: const Color(0xFF007AFF),
+          selectedItemColor: const Color(0xFF985021), // Brown color
           unselectedItemColor: Colors.grey[400],
         ),
       ),
@@ -264,7 +266,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         }
         return child ?? const SizedBox.shrink();
       },
-      home: _isCheckingAuth 
+      home: _isCheckingAuth
           ? const Scaffold(
               body: Center(child: CircularProgressIndicator()),
             )
@@ -282,7 +284,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                     initialMessage: 'Error: ${snapshot.error}',
                   );
                 }
-                
+
                 return snapshot.data ?? const AuthScreen();
               },
             ),

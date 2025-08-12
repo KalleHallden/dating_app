@@ -23,7 +23,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   late final supabase.SupabaseClient _supabaseClient;
   // Supabase Realtime channel for user-specific broadcasts
   late final supabase.RealtimeChannel _userChannel;
-  
+
   // Add CallService instance
   final CallService _callService = CallService();
 
@@ -48,7 +48,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   // Store the partner ID for like/dislike functionality
   String? _partnerId;
   String? _lastPartnerId; // Track last partner for cache clearing
-  
+
   // New fields for time limits
   int _remainingMonthlyMinutes = 50;
   Timer? _callDurationTimer;
@@ -69,13 +69,13 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _supabaseClient = supabase.Supabase.instance.client;
-    
+
     // Initialize animation controller
     _progressController = AnimationController(
       duration: _totalDuration,
       vsync: this,
     );
-    
+
     // Progress animation (0.0 to 1.0 over 5 minutes)
     _progressAnimation = Tween<double>(
       begin: 0.0,
@@ -84,7 +84,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       parent: _progressController,
       curve: Curves.linear,
     ));
-    
+
     // Blur animation (20.0 to 0.0, reaching 0 at 4:30)
     _blurAnimation = Tween<double>(
       begin: 20.0,
@@ -97,7 +97,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         curve: Curves.easeInOut,
       ),
     ));
-    
+
     _setupSupabaseIntegration();
     _loadRemainingMinutes(); // Load user's remaining minutes
   }
@@ -109,7 +109,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _callDurationTimer?.cancel();
     _userChannel.unsubscribe();
     OnlineStatusService().setInCall(false);
-    
+
     // Clear the cache when leaving the call page
     if (_partnerId != null) {
       LikeDislikeManager.clearCacheForUser(_partnerId!);
@@ -117,7 +117,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     if (_lastPartnerId != null && _lastPartnerId != _partnerId) {
       LikeDislikeManager.clearCacheForUser(_lastPartnerId!);
     }
-    
+
     super.dispose();
   }
 
@@ -130,14 +130,16 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     if (currentUser == null) return;
 
     try {
-      final response = await _supabaseClient.rpc('get_user_remaining_minutes', params: {
+      final response =
+          await _supabaseClient.rpc('get_user_remaining_minutes', params: {
         'p_user_id': currentUser.id,
       });
-      
+
       if (mounted) {
         setState(() {
           _remainingMonthlyMinutes = response ?? 0;
-          _outOfMinutes = _remainingMonthlyMinutes < 5; // Need at least 5 minutes for a call
+          _outOfMinutes = _remainingMonthlyMinutes <
+              5; // Need at least 5 minutes for a call
         });
       }
     } catch (e) {
@@ -148,7 +150,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   void _startProgressAnimation() {
     _callStartTime = DateTime.now();
     _progressController.forward();
-    
+
     // Update progress every second for smooth animation
     _progressTimer?.cancel();
     _progressTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -160,7 +162,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Force rebuild to update blur
       });
     });
-    
+
     // Start call duration countdown
     _startCallDurationTimer();
   }
@@ -168,23 +170,23 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   void _startCallDurationTimer() {
     _callSecondsRemaining = 300; // Reset to 5 minutes
     _showTimeWarning = false;
-    
+
     _callDurationTimer?.cancel();
     _callDurationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      
+
       setState(() {
         _callSecondsRemaining--;
-        
+
         // Show warning at 30 seconds remaining
         if (_callSecondsRemaining == 30 && !_showTimeWarning) {
           _showTimeWarning = true;
           _showCallEndingWarning();
         }
-        
+
         // Auto-end call at 0 seconds
         if (_callSecondsRemaining <= 0) {
           timer.cancel();
@@ -196,7 +198,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   void _showCallEndingWarning() {
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Call ending in 30 seconds...'),
@@ -208,7 +210,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   Future<void> _autoEndCall() async {
     safePrint('Auto-ending call after 5 minutes');
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -218,7 +220,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         ),
       );
     }
-    
+
     await _leaveCall();
   }
 
@@ -234,7 +236,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
     final currentUser = _supabaseClient.auth.currentUser;
     if (currentUser == null) {
-      safePrint('Error: Supabase user not authenticated. Cannot set up Realtime.');
+      safePrint(
+          'Error: Supabase user not authenticated. Cannot set up Realtime.');
       if (mounted) {
         Navigator.pushAndRemoveUntil(
           context,
@@ -251,17 +254,20 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       callback: (payload) => _onSupabaseRealtimeMessage(payload),
     );
     _userChannel.subscribe();
-    safePrint('Supabase Realtime: Subscribed to user channel: user:${currentUser.id}');
+    safePrint(
+        'Supabase Realtime: Subscribed to user channel: user:${currentUser.id}');
 
     safePrint('Attempting to send clearState request from Flutter...');
     await _sendClearState();
-    safePrint('clearState request sent from Flutter. Waiting for Realtime confirmation...');
+    safePrint(
+        'clearState request sent from Flutter. Waiting for Realtime confirmation...');
   }
 
   /// Handles incoming broadcast messages from Supabase Realtime.
   Future<void> _onSupabaseRealtimeMessage(Map<String, dynamic> payload) async {
     safePrint('← Received raw Realtime payload: $payload');
-    final Map<String, dynamic> message = payload['payload'] as Map<String, dynamic>;
+    final Map<String, dynamic> message =
+        payload['payload'] as Map<String, dynamic>;
 
     safePrint('← Parsed Realtime message: $message');
 
@@ -270,12 +276,13 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         safePrint('Supabase Realtime: State cleared confirmation received.');
         if (mounted) {
           setState(() => _isConnecting = false);
-          
+
           // Check if user has minutes before joining matchmaking
           if (_outOfMinutes) {
             _showOutOfMinutesDialog();
           } else {
-            safePrint('Calling _joinMatchmaking() after stateCleared confirmation.');
+            safePrint(
+                'Calling _joinMatchmaking() after stateCleared confirmation.');
             _joinMatchmaking();
           }
         }
@@ -284,24 +291,24 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'outOfMinutes':
         safePrint('Supabase Realtime: Out of minutes notification received.');
         if (!mounted) return;
-        
+
         setState(() {
           _outOfMinutes = true;
           _remainingMonthlyMinutes = message['remainingMinutes'] ?? 0;
         });
-        
+
         _showOutOfMinutesDialog();
         return;
 
       case 'leftCall':
         safePrint('Supabase Realtime: Left call confirmation received.');
         if (!mounted) return;
-        
+
         // Clear cache when leaving call
         if (_partnerId != null) {
           LikeDislikeManager.clearCacheForUser(_partnerId!);
         }
-        
+
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
@@ -315,10 +322,10 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _progressTimer?.cancel();
         _callDurationTimer?.cancel();
         OnlineStatusService().setInCall(false);
-        
+
         // Reload remaining minutes after call
         await _loadRemainingMinutes();
-        
+
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
@@ -333,21 +340,21 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String;
         final String partnerId = message['partnerId'] as String;
-        
+
         // Clear cache if this is a different partner
         if (_lastPartnerId != null && _lastPartnerId != partnerId) {
           LikeDislikeManager.clearCacheForUser(_lastPartnerId!);
         }
-        
+
         _partnerId = partnerId;
         _lastPartnerId = partnerId;
-        
+
         // Force refresh the manager state for this partner
         final manager = LikeDislikeManager.forUser(partnerId);
         await manager.refreshState();
-        
+
         final String role = message['role'] as String? ?? 'unknown';
-        
+
         // Update remaining minutes from message
         if (message['remainingMinutes'] != null) {
           setState(() {
@@ -366,24 +373,27 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           if (partnerData != null) {
             setState(() {
               _matchedUserName = partnerData['name'] as String?;
-              _matchedUserProfilePicture = partnerData['profile_picture'] as String?;
+              _matchedUserProfilePicture =
+                  partnerData['profile_picture'] as String?;
               _isCallActive = true;
             });
-            safePrint('Matched with: $_matchedUserName (ID: $partnerId) as $role');
+            safePrint(
+                'Matched with: $_matchedUserName (ID: $partnerId) as $role');
             safePrint('Profile picture URL: $_matchedUserProfilePicture');
-            
+
             _startProgressAnimation();
             OnlineStatusService().setInCall(true);
-            
+
             if (role == 'called') {
               await _callService.markCallAsActive(_currentSupabaseCallId!);
             }
-            
+
             // Show call info with time limit
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Call started! Maximum duration: 5 minutes. Monthly minutes remaining: $_remainingMonthlyMinutes'),
+                  content: Text(
+                      'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: $_remainingMonthlyMinutes'),
                   duration: const Duration(seconds: 5),
                   backgroundColor: Colors.green,
                 ),
@@ -412,12 +422,12 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'callEnded':
         safePrint('Supabase Realtime: Call ended by other party.');
         if (!mounted) return;
-        
+
         // Clear cache when call ends
         if (_partnerId != null) {
           LikeDislikeManager.clearCacheForUser(_partnerId!);
         }
-        
+
         setState(() {
           _isCallActive = false;
           _currentSupabaseCallId = null;
@@ -427,9 +437,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _progressTimer?.cancel();
         _callDurationTimer?.cancel();
         OnlineStatusService().setInCall(false);
-        
+
         await _loadRemainingMinutes();
-        
+
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
@@ -440,14 +450,14 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'partnerLeftCall':
         safePrint('Supabase Realtime: Partner left the call.');
         if (!mounted) return;
-        
+
         final partnerName = message['partnerName'] as String? ?? 'User';
-        
+
         // Clear the cache when partner leaves
         if (_partnerId != null) {
           LikeDislikeManager.clearCacheForUser(_partnerId!);
         }
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('$partnerName left the phone call'),
@@ -455,7 +465,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             backgroundColor: Colors.orange,
           ),
         );
-        
+
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
@@ -465,20 +475,20 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _matchedUserProfilePicture = null;
           _partnerId = null;
         });
-        
+
         _progressController.stop();
         _progressTimer?.cancel();
         _callDurationTimer?.cancel();
-        
+
         OnlineStatusService().setInCall(false);
-        
+
         await _loadRemainingMinutes();
-        
+
         // Automatically rejoin matchmaking after a short delay
         Future.delayed(const Duration(seconds: 1), () {
           if (mounted) {
             setState(() => _isConnecting = false);
-            
+
             // Check if user has minutes before rejoining
             if (_outOfMinutes) {
               _showOutOfMinutesDialog();
@@ -488,27 +498,27 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             }
           }
         });
-        
+
         return;
 
       default:
-        safePrint('Supabase Realtime: Unknown action received: ${message['action']}');
+        safePrint(
+            'Supabase Realtime: Unknown action received: ${message['action']}');
         break;
     }
   }
 
   void _showOutOfMinutesDialog() {
     if (!mounted) return;
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: const Text('Out of Minutes'),
         content: Text(
-          'You have used all $_remainingMonthlyMinutes of your available minutes for this month.\n\n'
-          'Your minutes will reset at the beginning of next month.'
-        ),
+            'You have used all $_remainingMonthlyMinutes of your available minutes for this month.\n\n'
+            'Your minutes will reset at the beginning of next month.'),
         actions: [
           TextButton(
             onPressed: () {
@@ -527,7 +537,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   }
 
   /// Sends a request to the `user_state_handler` Edge Function.
-  Future<void> _sendSupabaseFunctionAction(String action, {Map<String, dynamic>? data}) async {
+  Future<void> _sendSupabaseFunctionAction(String action,
+      {Map<String, dynamic>? data}) async {
     final currentUser = _supabaseClient.auth.currentUser;
     if (currentUser == null) {
       safePrint('Error: User not authenticated. Cannot send action: $action');
@@ -605,8 +616,10 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     );
   }
 
-  void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
-  void _prevOption() => setState(() => currentIndex = (currentIndex - 1 + options.length) % options.length);
+  void _nextOption() =>
+      setState(() => currentIndex = (currentIndex + 1) % options.length);
+  void _prevOption() => setState(() =>
+      currentIndex = (currentIndex - 1 + options.length) % options.length);
 
   @override
   Widget build(BuildContext context) {
@@ -707,18 +720,21 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         ),
         body: Center(
           child: Padding(
-            padding: const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 24.0),
+            padding:
+                const EdgeInsets.only(left: 24.0, right: 24.0, bottom: 24.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('searching', style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+                Text('searching',
+                    style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                 const SizedBox(height: 8),
                 Text(
                   'Minutes remaining: $_remainingMonthlyMinutes',
                   style: TextStyle(fontSize: 12, color: Colors.blue[600]),
                 ),
                 const SizedBox(height: 16),
-                CircularProgressIndicator(color: Theme.of(context).primaryColor),
+                CircularProgressIndicator(
+                    color: Theme.of(context).primaryColor),
                 const SizedBox(height: 24),
                 SingleChildScrollView(
                   child: Text(
@@ -752,7 +768,8 @@ Don't try to be someone else's match, try to find yours.'''
             builder: (context, child) {
               return Stack(
                 children: [
-                  if (_matchedUserProfilePicture != null && _matchedUserProfilePicture!.isNotEmpty)
+                  if (_matchedUserProfilePicture != null &&
+                      _matchedUserProfilePicture!.isNotEmpty)
                     Positioned.fill(
                       child: Image.network(
                         _matchedUserProfilePicture!,
@@ -777,7 +794,8 @@ Don't try to be someone else's match, try to find yours.'''
                             color: Colors.grey[800],
                             child: Center(
                               child: CircularProgressIndicator(
-                                value: loadingProgress.expectedTotalBytes != null
+                                value: loadingProgress.expectedTotalBytes !=
+                                        null
                                     ? loadingProgress.cumulativeBytesLoaded /
                                         loadingProgress.expectedTotalBytes!
                                     : null,
@@ -829,17 +847,17 @@ Don't try to be someone else's match, try to find yours.'''
                     Text(
                       _matchedUserName ?? '',
                       style: const TextStyle(
-                        fontSize: 24,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold
-                      ),
+                          fontSize: 24,
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 4),
                     // Call timer
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: _callSecondsRemaining <= 30 
+                        color: _callSecondsRemaining <= 30
                             ? Colors.orange.withOpacity(0.8)
                             : Colors.black.withOpacity(0.6),
                         borderRadius: BorderRadius.circular(12),
@@ -848,7 +866,7 @@ Don't try to be someone else's match, try to find yours.'''
                         _formatCallTime(),
                         style: TextStyle(
                           fontSize: 16,
-                          color: _callSecondsRemaining <= 30 
+                          color: _callSecondsRemaining <= 30
                               ? Colors.white
                               : Colors.white70,
                           fontWeight: FontWeight.bold,
@@ -862,7 +880,8 @@ Don't try to be someone else's match, try to find yours.'''
                   style: ButtonStyle(
                     backgroundColor: MaterialStateProperty.all(Colors.red),
                   ),
-                  child: const Text('Leave', style: TextStyle(color: Colors.white)),
+                  child: const Text('Leave',
+                      style: TextStyle(color: Colors.white)),
                 ),
               ],
             ),
@@ -897,12 +916,12 @@ Don't try to be someone else's match, try to find yours.'''
           // Pass the Agora channel ID and call ID to JoinChannelAudio
           Align(
             alignment: Alignment.center,
-            child: _agoraChannelId != null 
-              ? JoinChannelAudio(
-                  channelID: _agoraChannelId!,
-                  callId: _currentSupabaseCallId,
-                )
-              : const CircularProgressIndicator(color: Colors.white),
+            child: _agoraChannelId != null
+                ? JoinChannelAudio(
+                    channelID: _agoraChannelId!,
+                    callId: _currentSupabaseCallId,
+                  )
+                : const CircularProgressIndicator(color: Colors.white),
           ),
           Align(
             alignment: Alignment.bottomCenter,
@@ -914,7 +933,8 @@ Don't try to be someone else's match, try to find yours.'''
                   // Like and Dislike buttons with unique key for cache busting
                   if (_partnerId != null)
                     ManagedLikeDislikeButtons(
-                      key: ValueKey('buttons_${_partnerId}_${_currentSupabaseCallId}'),
+                      key: ValueKey(
+                          'buttons_${_partnerId}_${_currentSupabaseCallId}'),
                       targetUserId: _partnerId!,
                       onMatched: () {
                         print('Match celebration for call with $_partnerId');
@@ -922,7 +942,8 @@ Don't try to be someone else's match, try to find yours.'''
                     ),
                   // Progress bar
                   Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 16),
                     child: AnimatedBuilder(
                       animation: _progressAnimation,
                       builder: (context, child) {
@@ -937,7 +958,8 @@ Don't try to be someone else's match, try to find yours.'''
                             child: LinearProgressIndicator(
                               value: _progressAnimation.value,
                               backgroundColor: Colors.transparent,
-                              valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Colors.white),
                               minHeight: 6,
                             ),
                           ),
@@ -947,7 +969,8 @@ Don't try to be someone else's match, try to find yours.'''
                   ),
                   // Would you rather card
                   Card(
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16)),
                     elevation: 8,
                     child: Container(
                       width: MediaQuery.of(context).size.width * 0.9,
@@ -955,12 +978,16 @@ Don't try to be someone else's match, try to find yours.'''
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('Would you rather', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                          const Text('Would you rather',
+                              style: TextStyle(
+                                  fontSize: 20, fontWeight: FontWeight.bold)),
                           const SizedBox(height: 10),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              IconButton(icon: const Icon(Icons.arrow_left), onPressed: _prevOption),
+                              IconButton(
+                                  icon: const Icon(Icons.arrow_left),
+                                  onPressed: _prevOption),
                               Expanded(
                                 child: Text(
                                   options[currentIndex],
@@ -968,7 +995,9 @@ Don't try to be someone else's match, try to find yours.'''
                                   style: const TextStyle(fontSize: 16),
                                 ),
                               ),
-                              IconButton(icon: const Icon(Icons.arrow_right), onPressed: _nextOption),
+                              IconButton(
+                                  icon: const Icon(Icons.arrow_right),
+                                  onPressed: _nextOption),
                             ],
                           ),
                         ],

@@ -50,6 +50,7 @@ dependencies:
   flutter_dotenv: ^5.2.1
   uni_links: ^0.5.1
   flutter_image_compress: ^2.4.0
+  flutter_launcher_icons: ^0.14.4
 
 dev_dependencies:
   flutter_test:
@@ -107,3 +108,17 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+flutter_launcher_icons:
+  android: true
+  ios: true
+
+  # Fallback for older places that use a single bitmap
+  image_path: assets/icon/app_icon.png
+
+  # Adaptive icon layers (Android 8+)
+  adaptive_icon_foreground: assets/icon/foreground.png
+  adaptive_icon_background: assets/icon/background.png
+  adaptive_icon_monochrome: assets/icon/monochrome.png  # optional, Android 13+
+
+  # App Store requires no transparency
+  remove_alpha_ios: true

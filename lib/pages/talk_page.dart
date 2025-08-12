@@ -5,7 +5,7 @@ class TalkPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-	    child: Center(
+        child: Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Column(
@@ -31,20 +31,20 @@ class TalkPage extends StatelessWidget {
                   MaterialPageRoute(builder: (_) => const CallPage()),
                 );
               },
-	      style: ElevatedButton.styleFrom(
-  backgroundColor: const Color(0xFF007AFF), // Apple blue
-  foregroundColor: Colors.white,            // White text
-  minimumSize: const Size(200, 48),
-  shape: RoundedRectangleBorder(
-    borderRadius: BorderRadius.circular(12), // subtle rounding
-  ),
-),
-              child: const Text('Start Connection', style: TextStyle(fontSize: 16)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF985021), // Brown color
+                foregroundColor: Colors.white, // White text
+                minimumSize: const Size(200, 48),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12), // subtle rounding
+                ),
+              ),
+              child: const Text('Start Connection',
+                  style: TextStyle(fontSize: 16)),
             ),
           ],
         ),
       ),
-      )
-    );
+    ));
   }
 }
