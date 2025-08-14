@@ -9,6 +9,7 @@ import 'managed_dislike_button.dart';
 class ManagedLikeDislikeButtons extends StatefulWidget {
   final String targetUserId;
   final VoidCallback? onMatched;
+  final VoidCallback? onNextPressed;
   final double buttonSize;
   final double spacing;
 
@@ -16,6 +17,7 @@ class ManagedLikeDislikeButtons extends StatefulWidget {
     Key? key,
     required this.targetUserId,
     this.onMatched,
+    this.onNextPressed,
     this.buttonSize = 56,
     this.spacing = 60,
   }) : super(key: key);
@@ -246,18 +248,6 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          ManagedDislikeButton(
-            manager: _manager,
-            size: widget.buttonSize,
-            backgroundColor: Colors.white.withOpacity(0.9),
-            iconColor: Colors.red,
-            onDisliked: () {
-              print('Disliked user: ${widget.targetUserId}');
-            },
-            onUndisliked: () {
-              print('Undisliked user: ${widget.targetUserId}');
-            },
-          ),
           ManagedLikeButton(
             manager: _manager,
             size: widget.buttonSize,
@@ -269,6 +259,20 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
             onUnliked: () {
               print('Unliked user: ${widget.targetUserId}');
             },
+          ),
+          ManagedDislikeButton(
+            manager: _manager,
+            size: widget.buttonSize,
+            backgroundColor: Colors.white.withOpacity(0.9),
+            iconColor: Colors.red,
+            onDisliked: () {
+              print('Disliked user: ${widget.targetUserId}');
+            },
+            onUndisliked: () {
+              print('Undisliked user: ${widget.targetUserId}');
+            },
+            onNextPressed: widget.onNextPressed,
+            showConfirmDialog: true,
           ),
         ],
       ),

@@ -7,6 +7,7 @@ import 'package:uni_links/uni_links.dart'; // Import uni_links
 import 'pages/auth_screen.dart';
 import 'pages/signup_screen.dart';
 import 'pages/call_page.dart';
+import 'pages/splash_screen.dart';
 import 'providers/signup_provider.dart';
 import 'services/supabase_client.dart';
 import 'services/online_status_service.dart';
@@ -45,11 +46,21 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   supabase.Session? _session; // Use a nullable Session object
   bool _isCheckingAuth = true; // Add loading state
+  bool _showSplash = true; // Add splash screen state
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
+    // Show splash screen for a minimum duration
+    Future.delayed(const Duration(seconds: 4), () {
+      if (mounted) {
+        setState(() {
+          _showSplash = false;
+        });
+      }
+    });
 
     // Initialize session listener from Supabase
     SupabaseClient.instance.client.auth.onAuthStateChange.listen((data) {
@@ -226,6 +237,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Dating App',
+      debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey, // Add the navigator key here
       theme: ThemeData(
         primaryColor: const Color(0xFF985021), // Brown color
@@ -266,28 +278,30 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         }
         return child ?? const SizedBox.shrink();
       },
-      home: _isCheckingAuth
-          ? const Scaffold(
-              body: Center(child: CircularProgressIndicator()),
-            )
-          : FutureBuilder<Widget>(
-              // Re-evaluate the initial screen whenever session changes
-              future: _getInitialScreen(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Scaffold(
-                    body: Center(child: CircularProgressIndicator()),
-                  );
-                }
-                if (snapshot.hasError) {
-                  return AuthScreen(
-                    initialMessage: 'Error: ${snapshot.error}',
-                  );
-                }
+      home: _showSplash
+          ? const SplashScreen()
+          : _isCheckingAuth
+              ? const Scaffold(
+                  body: Center(child: CircularProgressIndicator()),
+                )
+              : FutureBuilder<Widget>(
+                  // Re-evaluate the initial screen whenever session changes
+                  future: _getInitialScreen(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    if (snapshot.hasError) {
+                      return AuthScreen(
+                        initialMessage: 'Error: ${snapshot.error}',
+                      );
+                    }
 
-                return snapshot.data ?? const AuthScreen();
-              },
-            ),
+                    return snapshot.data ?? const AuthScreen();
+                  },
+                ),
     );
   }
 }

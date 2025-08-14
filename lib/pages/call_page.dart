@@ -30,6 +30,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   bool _isConnecting = true;
   bool _isCallActive = false;
   bool _isLeavingCall = false;
+  bool _isSkippingToNext = false;
   String? _currentSupabaseCallId;
   String? _agoraChannelId;
   String? _matchedUserName;
@@ -326,11 +327,25 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Reload remaining minutes after call
         await _loadRemainingMinutes();
 
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePage()),
-          (_) => false,
-        );
+        // Only navigate to home page if we're not skipping to next person
+        if (!_isSkippingToNext) {
+          Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(builder: (_) => const HomePage()),
+            (_) => false,
+          );
+        } else {
+          // Reset the flag and stay on call page for matchmaking
+          _isSkippingToNext = false;
+          setState(() => _isConnecting = false);
+          
+          // Check if user has minutes before rejoining
+          if (_outOfMinutes) {
+            _showOutOfMinutesDialog();
+          } else {
+            _joinMatchmaking();
+          }
+        }
         return;
 
       case 'callInitiated':
@@ -590,9 +605,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     safePrint('joinMatchmaking request sent from Flutter.');
   }
 
-  Future<void> _leaveCall() async {
+  Future<void> _leaveCall({bool shouldReturnHome = true}) async {
+    // Set flag to indicate if we're skipping to next person
+    _isSkippingToNext = !shouldReturnHome;
     if (_currentSupabaseCallId == null) {
-      if (mounted) {
+      if (mounted && shouldReturnHome) {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const HomePage()),
@@ -614,6 +631,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         'callId': _currentSupabaseCallId,
       },
     );
+    
+    // The actual cleanup and navigation logic is handled in the 'leftCall' case
+    // when we receive the confirmation from the backend
   }
 
   void _nextOption() =>
@@ -938,6 +958,11 @@ Don't try to be someone else's match, try to find yours.'''
                       targetUserId: _partnerId!,
                       onMatched: () {
                         print('Match celebration for call with $_partnerId');
+                      },
+                      onNextPressed: () async {
+                        // The dislike is already handled by the button
+                        // Now trigger leave call but stay on the page
+                        await _leaveCall(shouldReturnHome: false);
                       },
                     ),
                   // Progress bar

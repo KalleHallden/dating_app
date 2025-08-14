@@ -6,6 +6,8 @@ class ManagedDislikeButton extends StatefulWidget {
   final LikeDislikeManager manager;
   final VoidCallback? onDisliked;
   final VoidCallback? onUndisliked;
+  final VoidCallback? onNextPressed;
+  final bool showConfirmDialog;
   final double size;
   final Color backgroundColor;
   final Color iconColor;
@@ -15,6 +17,8 @@ class ManagedDislikeButton extends StatefulWidget {
     required this.manager,
     this.onDisliked,
     this.onUndisliked,
+    this.onNextPressed,
+    this.showConfirmDialog = true,
     this.size = 56,
     this.backgroundColor = Colors.white,
     this.iconColor = Colors.red,
@@ -54,37 +58,49 @@ class _ManagedDislikeButtonState extends State<ManagedDislikeButton> with Single
   Future<void> _handleTap() async {
     if (_isLoading) return;
 
+    // If confirmation dialog is enabled, show it first
+    if (widget.showConfirmDialog && widget.onNextPressed != null) {
+      final shouldProceed = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Skip Conversation?'),
+            content: const Text('Are you sure you want to skip this conversation?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red,
+                ),
+                child: const Text('Skip'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (shouldProceed != true) return;
+    }
+
     await _animationController.forward();
     _animationController.reverse();
 
     setState(() => _isLoading = true);
 
     try {
-      final wasDisliked = widget.manager.isDisliked;
-      final isNowDisliked = await widget.manager.toggleDislike();
-      
-      if (isNowDisliked && !wasDisliked) {
+      // Add dislike in the backend (but don't show scaffold message)
+      if (!widget.manager.isDisliked) {
+        await widget.manager.toggleDislike();
         widget.onDisliked?.call();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Disliked'),
-              duration: Duration(seconds: 1),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } else if (!isNowDisliked && wasDisliked) {
-        widget.onUndisliked?.call();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Dislike removed'),
-              duration: Duration(seconds: 1),
-              backgroundColor: Colors.grey,
-            ),
-          );
-        }
+      }
+      
+      // Call the next handler if provided
+      if (widget.onNextPressed != null) {
+        widget.onNextPressed!();
       }
     } catch (e) {
       if (mounted) {
@@ -142,10 +158,9 @@ class _ManagedDislikeButtonState extends State<ManagedDislikeButton> with Single
                           ),
                         )
                       : Icon(
-                          Icons.close,
-                          color: isDisliked ? widget.iconColor : widget.iconColor.withOpacity(0.6),
+                          Icons.fast_forward,
+                          color: widget.iconColor.withOpacity(0.8),
                           size: widget.size * 0.5,
-                          weight: isDisliked ? 700 : 400,
                         ),
                 ),
               ),

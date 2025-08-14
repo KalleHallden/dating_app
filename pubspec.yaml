@@ -78,6 +78,7 @@ flutter:
   # assets:
   assets:
      - assets/profile_pic.jpg
+     - assets/icon/
      - .env
   #   - images/a_dot_ham.jpeg
   #   - images/a_dot_burr.jpeg
