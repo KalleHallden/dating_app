@@ -38,6 +38,15 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   Timer? _durationTimer;
   DateTime? _callStartTime;
   Duration _callDuration = Duration.zero;
+  
+  // Call limits checking
+  Timer? _callLimitsTimer;
+  int _maxCallDurationSeconds = 300; // Default 5 minutes
+  int _callerSecondsRemaining = 300;
+  int _calledSecondsRemaining = 300;
+  int _actualSecondsRemaining = 300;
+  bool _showTimeWarning = false;
+  bool _isAutoEnding = false;
 
   // Options for conversation starters
   final List<String> options = [
@@ -65,6 +74,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   void dispose() {
     _callStatusChannel?.unsubscribe();
     _durationTimer?.cancel();
+    _callLimitsTimer?.cancel();
     
     // Ensure we set the user as not in call when disposing
     OnlineStatusService().setInCall(false);
@@ -117,9 +127,23 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       if (mounted) {
         setState(() {
           _callDuration = DateTime.now().difference(_callStartTime!);
+          
+          // Update local remaining seconds countdown
+          if (_actualSecondsRemaining > 0) {
+            _actualSecondsRemaining--;
+            
+            // Show warning at 30 seconds
+            if (_actualSecondsRemaining == 30 && !_showTimeWarning) {
+              _showTimeWarning = true;
+              _showCallEndingWarning();
+            }
+          }
         });
       }
     });
+    
+    // Start call limits checking timer
+    _startCallLimitsChecking();
     
     // Set user as in call
     OnlineStatusService().setInCall(true);
@@ -135,12 +159,108 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   }
 
   void _handleCallEnded() {
+    // Cancel timers
+    _callLimitsTimer?.cancel();
+    _durationTimer?.cancel();
+    
     // Set user as not in call and force status update
     OnlineStatusService().setInCall(false);
     OnlineStatusService().forceRefreshStatus();
     
-    _showMessage('Call ended');
+    if (!_isAutoEnding) {
+      _showMessage('Call ended');
+    }
     _navigateBack();
+  }
+
+  void _startCallLimitsChecking() {
+    // Check immediately, then every 15 seconds
+    _checkCallLimits();
+    
+    _callLimitsTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
+      if (_isCallActive && !_isLeavingCall && !_isAutoEnding) {
+        _checkCallLimits();
+      }
+    });
+  }
+  
+  Future<void> _checkCallLimits() async {
+    try {
+      final supabaseClient = SupabaseClient.instance.client;
+      final response = await supabaseClient.functions.invoke(
+        'check-call-limits',
+        body: {
+          'call_id': widget.callId,
+        },
+      );
+      
+      if (response.status == 200 && response.data != null) {
+        final data = response.data as Map<String, dynamic>;
+        
+        if (mounted) {
+          setState(() {
+            _callerSecondsRemaining = data['callerSecondsRemaining'] ?? 300;
+            _calledSecondsRemaining = data['calledSecondsRemaining'] ?? 300;
+            _maxCallDurationSeconds = data['maxDurationSeconds'] ?? 300;
+            
+            // Calculate actual remaining seconds (minimum of all limits)
+            final durationSeconds = data['durationSeconds'] ?? 0;
+            final timeRemaining = _maxCallDurationSeconds - durationSeconds;
+            _actualSecondsRemaining = [
+              timeRemaining,
+              _callerSecondsRemaining,
+              _calledSecondsRemaining,
+            ].reduce((a, b) => a < b ? a : b).toInt();
+            
+            // Ensure we don't go negative
+            if (_actualSecondsRemaining < 0) {
+              _actualSecondsRemaining = 0;
+            }
+          });
+        }
+        
+        // Check if call should end
+        if (data['shouldEnd'] == true) {
+          _handleAutoEnd(data['reason'] ?? 'Call time limit reached');
+        }
+      }
+    } catch (e) {
+      print('Error checking call limits: $e');
+      // Don't end call on error, just continue
+    }
+  }
+  
+  void _handleAutoEnd(String reason) {
+    if (_isAutoEnding || _isLeavingCall) return;
+    
+    setState(() {
+      _isAutoEnding = true;
+    });
+    
+    // Cancel timers
+    _callLimitsTimer?.cancel();
+    _durationTimer?.cancel();
+    
+    // Show reason to user
+    _showMessage(reason, duration: const Duration(seconds: 5));
+    
+    // Clean up and navigate back after showing message
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        OnlineStatusService().setInCall(false);
+        OnlineStatusService().forceRefreshStatus();
+        _navigateBack();
+      }
+    });
+  }
+  
+  void _showCallEndingWarning() {
+    if (!mounted) return;
+    
+    _showMessage('Call ending in 30 seconds...', 
+      isError: false, 
+      duration: const Duration(seconds: 5),
+      backgroundColor: Colors.orange);
   }
 
   Future<void> _endCall() async {
@@ -149,13 +269,58 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     setState(() {
       _isLeavingCall = true;
     });
+    
+    // Cancel the call limits timer when manually ending
+    _callLimitsTimer?.cancel();
+    
+    // Don't send end call if it's auto-ending (backend already ended it)
+    if (_isAutoEnding) {
+      _navigateBack();
+      return;
+    }
 
     try {
       // Set user as available when leaving call
       OnlineStatusService().setInCall(false);
       
-      // Update call status to ended
-      await _callService.endCall(widget.callId);
+      // Call the manage-call edge function with action: 'end'
+      final supabaseClient = SupabaseClient.instance.client;
+      final currentUser = supabaseClient.auth.currentUser;
+      
+      if (currentUser != null) {
+        print('Attempting to call manage-call edge function...');
+        print('CallId: ${widget.callId}');
+        print('UserId: ${currentUser.id}');
+        
+        try {
+          final response = await supabaseClient.functions.invoke(
+            'manage-call',
+            body: {
+              'call_id': widget.callId,
+              'action': 'end',
+            },
+          );
+          
+          print('Edge function response status: ${response.status}');
+          print('Edge function response data: ${response.data}');
+          
+          if (response.status != 200) {
+            print('Edge function error: ${response.data}');
+          } else {
+            print('Successfully called manage-call edge function');
+          }
+        } catch (edgeFunctionError) {
+          print('Error calling manage-call edge function: $edgeFunctionError');
+          // Continue with fallback logic below
+        }
+      } else {
+        print('No authenticated user found - cannot call edge function');
+      }
+      
+      // Update call status to ended (fallback) - only if not auto-ending
+      if (!_isAutoEnding) {
+        await _callService.endCall(widget.callId);
+      }
       
       // Force refresh online status after a short delay to ensure it's registered
       await Future.delayed(const Duration(milliseconds: 500));
@@ -184,13 +349,17 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     }
   }
 
-  void _showMessage(String message, {bool isError = false}) {
+  void _showMessage(String message, {
+    bool isError = false, 
+    Duration duration = const Duration(seconds: 3),
+    Color? backgroundColor,
+  }) {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: isError ? Colors.red : Colors.grey,
-          duration: const Duration(seconds: 3),
+          backgroundColor: backgroundColor ?? (isError ? Colors.red : Colors.grey),
+          duration: duration,
         ),
       );
     }
@@ -201,6 +370,12 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
     return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+  }
+  
+  String _formatRemainingTime() {
+    final minutes = (_actualSecondsRemaining ~/ 60);
+    final seconds = (_actualSecondsRemaining % 60);
+    return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
   void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
@@ -383,11 +558,33 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                         ),
                       ),
                       const SizedBox(height: 4),
+                      // Call duration
                       Text(
                         _formatDuration(_callDuration),
                         style: const TextStyle(
-                          fontSize: 16,
+                          fontSize: 14,
                           color: Colors.white70,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      // Remaining time
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _actualSecondsRemaining <= 30 
+                              ? Colors.red.withOpacity(0.8)
+                              : _actualSecondsRemaining <= 60
+                                  ? Colors.orange.withOpacity(0.8)
+                                  : Colors.green.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          'Time left: ${_formatRemainingTime()}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
                     ],

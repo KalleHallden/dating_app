@@ -27,7 +27,9 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string></string>
+	<string>This app needs access to microphone for voice calls with other users.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>This app uses the local network to connect voice calls between users.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

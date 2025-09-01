@@ -11,6 +11,7 @@ import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';
 import '../services/like_dislike_manager.dart';
+import '../models/User.dart';
 
 class CallPage extends StatefulWidget {
   const CallPage({Key? key}) : super(key: key);
@@ -35,6 +36,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   String? _agoraChannelId;
   String? _matchedUserName;
   String? _matchedUserProfilePicture;
+  int? _assignedUid;
   final bool _debug = true;
 
   // Progress bar and blur animation
@@ -51,7 +53,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   String? _lastPartnerId; // Track last partner for cache clearing
 
   // New fields for time limits
-  int _remainingMonthlyMinutes = 50;
+  User? _currentUser;
   Timer? _callDurationTimer;
   int _callSecondsRemaining = 300; // 5 minutes in seconds
   bool _showTimeWarning = false;
@@ -131,16 +133,23 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     if (currentUser == null) return;
 
     try {
-      final response =
-          await _supabaseClient.rpc('get_user_remaining_minutes', params: {
-        'p_user_id': currentUser.id,
-      });
+      final response = await _supabaseClient
+          .from('users')
+          .select('monthly_seconds_used, monthly_second_limit, total_lifetime_seconds, name, profile_picture')
+          .eq('user_id', currentUser.id)
+          .maybeSingle();
 
-      if (mounted) {
+      if (mounted && response != null) {
         setState(() {
-          _remainingMonthlyMinutes = response ?? 0;
-          _outOfMinutes = _remainingMonthlyMinutes <
-              5; // Need at least 5 minutes for a call
+          _currentUser = User(
+            userId: currentUser.id,
+            name: response['name'],
+            profilePicture: response['profile_picture'],
+            monthlySecondsUsed: response['monthly_seconds_used'] ?? 0,
+            monthlySecondLimit: response['monthly_second_limit'] ?? 0,
+            totalLifetimeSeconds: response['total_lifetime_seconds'] ?? 0,
+          );
+          _outOfMinutes = !_currentUser!.hasMinutesForCall;
         });
       }
     } catch (e) {
@@ -293,10 +302,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         safePrint('Supabase Realtime: Out of minutes notification received.');
         if (!mounted) return;
 
-        setState(() {
-          _outOfMinutes = true;
-          _remainingMonthlyMinutes = message['remainingMinutes'] ?? 0;
-        });
+        // Reload user data to get updated seconds
+        await _loadRemainingMinutes();
 
         _showOutOfMinutesDialog();
         return;
@@ -318,6 +325,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _matchedUserName = null;
           _matchedUserProfilePicture = null;
           _partnerId = null;
+          _assignedUid = null;
         });
         _progressController.stop();
         _progressTimer?.cancel();
@@ -355,6 +363,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String;
         final String partnerId = message['partnerId'] as String;
+        _assignedUid = message['assignedUid'] as int;
+        
+        safePrint('Received callInitiated with assignedUid: $_assignedUid');
 
         // Clear cache if this is a different partner
         if (_lastPartnerId != null && _lastPartnerId != partnerId) {
@@ -370,12 +381,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
         final String role = message['role'] as String? ?? 'unknown';
 
-        // Update remaining minutes from message
-        if (message['remainingMinutes'] != null) {
-          setState(() {
-            _remainingMonthlyMinutes = message['remainingMinutes'] as int;
-          });
-        }
+        // Reload user data after call initiation
+        await _loadRemainingMinutes();
 
         // Fetch partner's profile information
         try {
@@ -404,11 +411,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             }
 
             // Show call info with time limit
-            if (mounted) {
+            if (mounted && _currentUser != null) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                      'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: $_remainingMonthlyMinutes'),
+                      'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
                   duration: const Duration(seconds: 5),
                   backgroundColor: Colors.green,
                 ),
@@ -489,6 +496,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _matchedUserName = null;
           _matchedUserProfilePicture = null;
           _partnerId = null;
+          _assignedUid = null;
         });
 
         _progressController.stop();
@@ -532,8 +540,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       builder: (context) => AlertDialog(
         title: const Text('Out of Minutes'),
         content: Text(
-            'You have used all $_remainingMonthlyMinutes of your available minutes for this month.\n\n'
-            'Your minutes will reset at the beginning of next month.'),
+            'You have ${_currentUser?.remainingMonthlyMinutes ?? 0} minutes remaining this month.\n\n'
+            'You need at least 5 minutes for a call. Your minutes will reset at the beginning of next month.'),
         actions: [
           TextButton(
             onPressed: () {
@@ -684,7 +692,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'You have $_remainingMonthlyMinutes minutes remaining this month.',
+                  'You have ${_currentUser?.remainingMonthlyMinutes ?? 0} minutes remaining this month.',
                   style: const TextStyle(fontSize: 16),
                   textAlign: TextAlign.center,
                 ),
@@ -749,7 +757,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
                     style: TextStyle(fontSize: 11, color: Colors.grey[600])),
                 const SizedBox(height: 8),
                 Text(
-                  'Minutes remaining: $_remainingMonthlyMinutes',
+                  'Minutes remaining: ${_currentUser?.remainingMonthlyMinutes ?? 0}',
                   style: TextStyle(fontSize: 12, color: Colors.blue[600]),
                 ),
                 const SizedBox(height: 16),
@@ -922,7 +930,7 @@ Don't try to be someone else's match, try to find yours.'''
                   const Icon(Icons.timer, color: Colors.white, size: 16),
                   const SizedBox(width: 4),
                   Text(
-                    '$_remainingMonthlyMinutes min/month',
+                    '${_currentUser?.remainingMonthlyMinutes ?? 0} min/month',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12,
@@ -940,6 +948,7 @@ Don't try to be someone else's match, try to find yours.'''
                 ? JoinChannelAudio(
                     channelID: _agoraChannelId!,
                     callId: _currentSupabaseCallId,
+                    uid: _assignedUid,
                   )
                 : const CircularProgressIndicator(color: Colors.white),
           ),
