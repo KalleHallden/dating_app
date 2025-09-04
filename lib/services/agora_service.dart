@@ -47,18 +47,19 @@ class AgoraService {
   /// Initialize the Agora engine (one-time setup)
   Future<void> initialize() async {
     if (_isInitialized || _isDisposing) {
-      print('AgoraService: Skipping initialize - already initialized: $_isInitialized, disposing: $_isDisposing');
+      print(
+          'AgoraService: Skipping initialize - already initialized: $_isInitialized, disposing: $_isDisposing');
       return;
     }
 
     try {
       print('AgoraService: Initializing engine...');
-      
+
       // Create Agora engine
       _engine = createAgoraRtcEngine();
       _isInitialized = true;
       _isConfigured = false; // Engine created but not configured
-      
+
       print('AgoraService: Engine created successfully');
     } catch (e) {
       print('AgoraService: Error creating engine: $e');
@@ -71,13 +72,15 @@ class AgoraService {
   /// Configure the engine with app ID and event handlers
   Future<void> _configureEngine(String appId) async {
     if (!_isInitialized || _engine == null || _isConfigured) {
-      print('AgoraService: Skipping configure - initialized: $_isInitialized, engine: ${_engine != null}, configured: $_isConfigured');
+      print(
+          'AgoraService: Skipping configure - initialized: $_isInitialized, engine: ${_engine != null}, configured: $_isConfigured');
       return;
     }
 
     try {
-      print('AgoraService: Configuring engine with appId: ${appId.substring(0, 8)}...');
-      
+      print(
+          'AgoraService: Configuring engine with appId: ${appId.substring(0, 8)}...');
+
       // Initialize engine with app ID
       await _engine!.initialize(RtcEngineContext(
         appId: appId,
@@ -89,16 +92,17 @@ class AgoraService {
 
       // Configure audio settings
       await _configureAudioSettings();
-      
+
       _isConfigured = true;
       _currentAppId = appId;
-      
+
       print('AgoraService: Engine configured successfully');
     } catch (e) {
       print('AgoraService: Error configuring engine: $e');
       _isConfigured = false;
       if (e is AgoraRtcException && e.code == -8) {
-        print('AgoraService: Engine already initialized error (-8), marking as configured');
+        print(
+            'AgoraService: Engine already initialized error (-8), marking as configured');
         _isConfigured = true;
         _currentAppId = appId;
       } else {
@@ -116,37 +120,38 @@ class AgoraService {
 
     try {
       print('AgoraService: Configuring audio settings');
-      
-      await _engine!.setChannelProfile(ChannelProfileType.channelProfileCommunication);
+
+      await _engine!
+          .setChannelProfile(ChannelProfileType.channelProfileCommunication);
       await _engine!.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
-      
+
       // Essential audio setup
       await _engine!.enableAudio();
       await _engine!.enableLocalAudio(true);
-      
+
       // Configure audio routing
       await _engine!.setDefaultAudioRouteToSpeakerphone(true);
-      
+
       // Audio quality settings
       await _engine!.setAudioProfile(
         profile: AudioProfileType.audioProfileSpeechStandard,
         scenario: AudioScenarioType.audioScenarioChatroom,
       );
-      
+
       // Enable volume indication
       await _engine!.enableAudioVolumeIndication(
         interval: 200,
         smooth: 3,
         reportVad: true,
       );
-      
+
       // Disable video
       await _engine!.disableVideo();
-      
+
       // Set volumes
       await _engine!.adjustRecordingSignalVolume(100);
       await _engine!.adjustPlaybackSignalVolume(100);
-      
+
       print('AgoraService: Audio settings configured');
     } catch (e) {
       print('AgoraService: Error configuring audio settings: $e');
@@ -168,43 +173,41 @@ class AgoraService {
     _engine!.registerEventHandler(
       RtcEngineEventHandler(
         onJoinChannelSuccess: (RtcConnection connection, int elapsed) {
-          print('AgoraService: Successfully joined channel: ${connection.channelId}');
+          print(
+              'AgoraService: Successfully joined channel: ${connection.channelId}');
           _inCall = true;
           _isJoiningChannel = false;
           _retryCount = 0; // Reset retry count on success
           onJoinChannelSuccess?.call();
-          
+
           // Enable speakerphone after successful join
           Future.delayed(Duration(milliseconds: 500), () {
             _engine?.setEnableSpeakerphone(true);
           });
         },
-        
         onUserJoined: (RtcConnection connection, int remoteUid, int elapsed) {
           print('AgoraService: User joined: $remoteUid');
           onUserJoined?.call(remoteUid);
         },
-        
-        onUserOffline: (RtcConnection connection, int remoteUid, UserOfflineReasonType reason) {
+        onUserOffline: (RtcConnection connection, int remoteUid,
+            UserOfflineReasonType reason) {
           print('AgoraService: User offline: $remoteUid, reason: $reason');
           onUserOffline?.call(remoteUid, reason);
         },
-        
         onTokenPrivilegeWillExpire: (RtcConnection connection, String token) {
           print('AgoraService: Token privilege will expire soon');
           onTokenPrivilegeWillExpire?.call();
           _renewTokenSafe();
         },
-        
         onRequestToken: (RtcConnection connection) {
           print('AgoraService: Token expired, requesting new token');
           _renewTokenSafe();
         },
-        
         onError: (ErrorCodeType err, String msg) {
           print('AgoraService: Error: $err - $msg');
-          
-          if (err == ErrorCodeType.errTokenExpired || err == ErrorCodeType.errInvalidToken) {
+
+          if (err == ErrorCodeType.errTokenExpired ||
+              err == ErrorCodeType.errInvalidToken) {
             print('AgoraService: Token error detected, attempting renewal');
             _renewTokenSafe();
           } else if (err.name.contains('-8')) {
@@ -214,13 +217,15 @@ class AgoraService {
             onError?.call('Audio error: $msg');
           }
         },
-        
-        onConnectionStateChanged: (RtcConnection connection, ConnectionStateType state, ConnectionChangedReasonType reason) {
+        onConnectionStateChanged: (RtcConnection connection,
+            ConnectionStateType state, ConnectionChangedReasonType reason) {
           print('AgoraService: Connection state: $state, reason: $reason');
-          
+
           if (state == ConnectionStateType.connectionStateFailed) {
-            if (reason == ConnectionChangedReasonType.connectionChangedTokenExpired ||
-                reason == ConnectionChangedReasonType.connectionChangedInvalidToken) {
+            if (reason ==
+                    ConnectionChangedReasonType.connectionChangedTokenExpired ||
+                reason ==
+                    ConnectionChangedReasonType.connectionChangedInvalidToken) {
               print('AgoraService: Connection failed due to token issue');
               _renewTokenSafe();
             } else {
@@ -232,11 +237,9 @@ class AgoraService {
             _retryCount = 0;
           }
         },
-        
         onRtcStats: (RtcConnection connection, RtcStats stats) {
           onRtcStats?.call(connection, stats);
         },
-        
         onAudioVolumeIndication: (
           RtcConnection connection,
           List<AudioVolumeInfo> speakers,
@@ -249,12 +252,25 @@ class AgoraService {
             onUserSpeaking?.call(uid, volume > 10);
           }
         },
-        
         onLeaveChannel: (RtcConnection connection, RtcStats stats) {
           print('AgoraService: Left channel');
-          _inCall = false;
-          _isJoiningChannel = false;
-          onCallEnded?.call();
+
+          // Only trigger call ended if we're not in a retry scenario
+          // (retry happens when we're still joining but leave to clear state)
+          if (!_isJoiningChannel) {
+            print('AgoraService: Call genuinely ended, cleaning up');
+            _inCall = false;
+            onCallEnded?.call();
+          } else {
+            print(
+                'AgoraService: Left channel for retry - keeping call state intact');
+          }
+
+          // Always reset joining flag when we actually leave
+          // (this will be set back to true when we retry)
+          if (!_isJoiningChannel) {
+            _isJoiningChannel = false;
+          }
         },
       ),
     );
@@ -263,10 +279,11 @@ class AgoraService {
   /// Safely renew token (prevents concurrent renewals)
   Future<void> _renewTokenSafe() async {
     if (_isRenewingToken || _currentChannel == null || _currentUid == null) {
-      print('AgoraService: Skipping token renewal - already renewing: $_isRenewingToken, or missing channel/uid');
+      print(
+          'AgoraService: Skipping token renewal - already renewing: $_isRenewingToken, or missing channel/uid');
       return;
     }
-    
+
     // Additional safety check: don't renew if we're not in a call context
     // Allow renewal if we have call context (attempting to join or already joined)
     if (!_inCall && !_isJoiningChannel) {
@@ -275,54 +292,87 @@ class AgoraService {
     }
 
     _isRenewingToken = true;
-    
+
     try {
       print('AgoraService: === TOKEN RENEWAL ATTEMPT ===');
-      print('AgoraService: Renewing token for channel $_currentChannel, uid $_currentUid');
-      print('AgoraService: Current state - _inCall: $_inCall, _isJoiningChannel: $_isJoiningChannel');
-      final tokenData = await _generateToken(_currentChannel!, _currentUid!, callId: _currentCallId);
-      
+      print(
+          'AgoraService: Renewing token for channel $_currentChannel, uid $_currentUid');
+      print(
+          'AgoraService: Current state - _inCall: $_inCall, _isJoiningChannel: $_isJoiningChannel');
+      final tokenData = await _generateToken(_currentChannel!, _currentUid!,
+          callId: _currentCallId);
+
       if (_engine != null && _isInitialized && !_isDisposing) {
         final newToken = tokenData['token'] as String;
-        
+
         // Log token details for debugging
-        print('AgoraService: New token starts with: ${newToken.substring(0, min(20, newToken.length))}...');
+        print(
+            'AgoraService: New token starts with: ${newToken.substring(0, min(20, newToken.length))}...');
         print('AgoraService: Token length: ${newToken.length}');
-        
+
         // Only update if we got a different token
         if (newToken != _currentToken) {
           _currentToken = newToken;
           await _engine!.renewToken(_currentToken!);
-          
+
           // Update expiry time
           final expiresIn = tokenData['expiresIn'] ?? 86400;
           _tokenExpiryTime = DateTime.now().add(Duration(seconds: expiresIn));
-          
+
           // Setup next renewal
           _setupTokenRenewalTimer(expiresIn);
-          
-          print('AgoraService: Token renewed successfully with same uid: $_currentUid');
-          
+
+          print(
+              'AgoraService: Token renewed successfully with same uid: $_currentUid');
+
           // If we were trying to join and failed, retry now with new token
           if (_isJoiningChannel && !_isDisposing) {
+            print(
+                'AgoraService: Token error recovery - leaving channel first to clear state');
+
+            // Leave the channel to clear the bad state
+            try {
+              await _engine!.leaveChannel();
+              print('AgoraService: Left channel successfully');
+            } catch (e) {
+              print('AgoraService: Error leaving channel: $e');
+            }
+
+            // Small delay to ensure clean state
+            await Future.delayed(Duration(milliseconds: 500));
+
             print('AgoraService: Retrying channel join with fresh token');
             try {
-              await _joinChannelInternal(_currentChannel!, _currentUid!, _currentToken!);
+              // Reset joining state to allow clean retry
+              _isJoiningChannel = false;
+              await Future.delayed(Duration(milliseconds: 100)); // Brief pause
+              _isJoiningChannel = true;
+
+              await _joinChannelInternal(
+                  _currentChannel!, _currentUid!, _currentToken!);
+              print('AgoraService: Retry join initiated successfully');
             } catch (retryError) {
               print('AgoraService: Retry join failed: $retryError');
+              // If retry fails with -17, we might need to reset the engine
+              if (retryError.toString().contains('-17') ||
+                  retryError.toString().contains('17')) {
+                print(
+                    'AgoraService: Error -17 detected, engine still in bad state');
+              }
             }
           }
         } else {
-          print('AgoraService: Warning - received same token as before, token generation may be failing');
+          print(
+              'AgoraService: Warning - received same token as before, token generation may be failing');
         }
       }
     } catch (e) {
       print('AgoraService: Error renewing token: $e');
       onError?.call('Failed to renew authentication');
-      
+
       // Reset the flag even on error to allow retry
       _isRenewingToken = false;
-      
+
       // If token renewal fails, we might need to rejoin the channel
       if (_retryCount < _maxRetries) {
         _handleConnectionFailure();
@@ -335,13 +385,14 @@ class AgoraService {
   /// Handle engine state error (-8)
   void _handleEngineStateError() {
     print('AgoraService: Handling engine state error');
-    
+
     // Don't restart if we're already in a good state or disposing
     if (_inCall || _isDisposing || _isJoiningChannel) {
-      print('AgoraService: Skipping engine recovery - inCall: $_inCall, disposing: $_isDisposing, joining: $_isJoiningChannel');
+      print(
+          'AgoraService: Skipping engine recovery - inCall: $_inCall, disposing: $_isDisposing, joining: $_isJoiningChannel');
       return;
     }
-    
+
     // Try to recover by rejoining
     if (_currentChannel != null && _currentUid != null) {
       print('AgoraService: Attempting to recover by rejoining channel');
@@ -358,10 +409,12 @@ class AgoraService {
     }
 
     _retryCount++;
-    final delaySeconds = (2 << (_retryCount - 1)); // Exponential backoff: 2, 4, 8 seconds
-    
-    print('AgoraService: Connection failed, retrying in ${delaySeconds}s (attempt $_retryCount/$_maxRetries)');
-    
+    final delaySeconds =
+        (2 << (_retryCount - 1)); // Exponential backoff: 2, 4, 8 seconds
+
+    print(
+        'AgoraService: Connection failed, retrying in ${delaySeconds}s (attempt $_retryCount/$_maxRetries)');
+
     _retryTimer?.cancel();
     _retryTimer = Timer(Duration(seconds: delaySeconds), () {
       if (!_isDisposing && _currentChannel != null && _currentUid != null) {
@@ -379,16 +432,19 @@ class AgoraService {
 
     try {
       print('AgoraService: Retrying channel join...');
-      
+
       // Leave current channel first if we're in one
       if (_inCall) {
         await _engine?.leaveChannel();
         await Future.delayed(Duration(milliseconds: 500));
       }
-      
+
       // Rejoin with current parameters
-      if (_currentChannel != null && _currentUid != null && _currentToken != null) {
-        await _joinChannelInternal(_currentChannel!, _currentUid!, _currentToken!);
+      if (_currentChannel != null &&
+          _currentUid != null &&
+          _currentToken != null) {
+        await _joinChannelInternal(
+            _currentChannel!, _currentUid!, _currentToken!);
       }
     } catch (e) {
       print('AgoraService: Retry failed: $e');
@@ -397,30 +453,35 @@ class AgoraService {
   }
 
   /// Generate token
-  Future<Map<String, dynamic>> _generateToken(String channelName, int uid, {String? callId}) async {
+  Future<Map<String, dynamic>> _generateToken(String channelName, int uid,
+      {String? callId}) async {
     try {
       final Map<String, dynamic> requestBody = {
         'channelName': channelName,
         'uid': uid,
         'role': 'publisher',
       };
-      
+
       // Include callId if provided (required for backend UID validation)
       if (callId != null) {
         requestBody['callId'] = callId;
       }
-      
+
       print('AgoraService: === TOKEN REQUEST DEBUG ===');
-      print('AgoraService: Requesting token for channelName: $channelName, uid: $uid, callId: $callId');
-      print('AgoraService: Current stored channel: $_currentChannel, current stored callId: $_currentCallId');
+      print(
+          'AgoraService: Requesting token for channelName: $channelName, uid: $uid, callId: $callId');
+      print(
+          'AgoraService: Current stored channel: $_currentChannel, current stored callId: $_currentCallId');
       print('AgoraService: Request body: ${jsonEncode(requestBody)}');
-      
+
       final response = await SupabaseClient.instance.client.functions.invoke(
         'generate-agora-token',
         body: requestBody,
       );
 
-      if (response.data == null || response.data['token'] == null || response.data['appId'] == null) {
+      if (response.data == null ||
+          response.data['token'] == null ||
+          response.data['appId'] == null) {
         throw Exception('Invalid token response');
       }
 
@@ -453,9 +514,10 @@ class AgoraService {
 
     try {
       print('AgoraService: === JOIN CHANNEL DEBUG START ===');
-    print('AgoraService: Starting join channel process for $channelName with uid $uid');
-    print('AgoraService: callId parameter: $callId');
-      
+      print(
+          'AgoraService: Starting join channel process for $channelName with uid $uid');
+      print('AgoraService: callId parameter: $callId');
+
       // Initialize engine if needed
       if (!_isInitialized) {
         await initialize();
@@ -471,12 +533,13 @@ class AgoraService {
       print('AgoraService: - channelName: $channelName');
       print('AgoraService: - uid: $uid');
       print('AgoraService: - callId: $callId');
-      
+
       Map<String, dynamic> tokenData;
       try {
         tokenData = await _generateToken(channelName, uid, callId: callId);
         _currentToken = tokenData['token'];
-        print('AgoraService: Token generated successfully, length: ${_currentToken!.length}');
+        print(
+            'AgoraService: Token generated successfully, length: ${_currentToken!.length}');
       } catch (e) {
         print('AgoraService: CRITICAL ERROR - Token generation failed: $e');
         rethrow;
@@ -498,30 +561,29 @@ class AgoraService {
       print('AgoraService: Setting _inCall = true to enable token renewal');
       _inCall = true;
       await _joinChannelInternal(channelName, uid, _currentToken!);
-      
     } catch (e) {
       print('AgoraService: Error in joinChannel: $e');
       _isJoiningChannel = false;
-      
+
       // Clear state on error
       _currentChannel = null;
       _currentUid = null;
       _currentCallId = null;
       _currentToken = null;
-      
+
       onError?.call('Failed to join call: $e');
       rethrow;
     }
   }
 
   /// Internal join channel method
-  Future<void> _joinChannelInternal(String channelName, int uid, String token) async {
+  Future<void> _joinChannelInternal(
+      String channelName, int uid, String token) async {
     if (!_isInitialized || !_isConfigured || _engine == null) {
       throw Exception('Engine not ready for joining channel');
     }
 
     print('AgoraService: Joining Agora channel with uid: $uid');
-    
     await _engine!.joinChannel(
       token: token,
       channelId: channelName,
@@ -533,17 +595,18 @@ class AgoraService {
         clientRoleType: ClientRoleType.clientRoleBroadcaster,
       ),
     );
-    
+
     print('AgoraService: joinChannel call completed');
   }
 
   /// Setup token renewal timer
   void _setupTokenRenewalTimer(int expiresInSeconds) {
     _tokenRenewalTimer?.cancel();
-    
+
     // Renew 5 minutes before expiry, or halfway through if less than 10 minutes
-    final renewalSeconds = expiresInSeconds > 600 ? expiresInSeconds - 300 : expiresInSeconds ~/ 2;
-    
+    final renewalSeconds =
+        expiresInSeconds > 600 ? expiresInSeconds - 300 : expiresInSeconds ~/ 2;
+
     if (renewalSeconds > 0) {
       _tokenRenewalTimer = Timer(Duration(seconds: renewalSeconds), () {
         if (!_isDisposing && _inCall) {
@@ -555,17 +618,18 @@ class AgoraService {
 
   /// Leave channel
   Future<void> leaveChannel() async {
-    print('AgoraService: Leaving channel $_currentChannel - cleaning up state and timers');
-    
+    print(
+        'AgoraService: Leaving channel $_currentChannel - cleaning up state and timers');
+
     // Cancel timers
     _tokenRenewalTimer?.cancel();
     _retryTimer?.cancel();
-    
+
     // Reset state
     _isJoiningChannel = false;
     _isRenewingToken = false;
     _retryCount = 0;
-    
+
     try {
       if (_engine != null && _inCall) {
         await _engine!.leaveChannel();
@@ -573,7 +637,7 @@ class AgoraService {
     } catch (e) {
       print('AgoraService: Error leaving channel: $e');
     }
-    
+
     // Clear call state
     _currentChannel = null;
     _currentToken = null;
@@ -581,7 +645,7 @@ class AgoraService {
     _currentCallId = null;
     _tokenExpiryTime = null;
     _inCall = false;
-    
+
     print('AgoraService: Channel left successfully');
   }
 
@@ -613,19 +677,19 @@ class AgoraService {
       print('AgoraService: Already disposing');
       return;
     }
-    
+
     _isDisposing = true;
     print('AgoraService: Disposing service...');
-    
+
     // Cancel all timers
     _tokenRenewalTimer?.cancel();
     _retryTimer?.cancel();
-    
+
     // Leave channel first
     if (_inCall) {
       await leaveChannel();
     }
-    
+
     // Release engine
     if (_engine != null) {
       try {
@@ -635,7 +699,7 @@ class AgoraService {
       }
       _engine = null;
     }
-    
+
     // Reset all state
     _isInitialized = false;
     _isConfigured = false;
@@ -644,7 +708,7 @@ class AgoraService {
     _isRenewingToken = false;
     _currentAppId = null;
     _retryCount = 0;
-    
+
     print('AgoraService: Service disposed successfully');
     _isDisposing = false;
   }
