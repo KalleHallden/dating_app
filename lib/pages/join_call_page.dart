@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../services/agora_service.dart';
-import '../services/supabase_client.dart';
 import 'waveform.dart';
 import 'dart:async';
 
@@ -24,9 +23,8 @@ class JoinChannelAudio extends StatefulWidget {
 class _JoinChannelAudioState extends State<JoinChannelAudio> {
   final AgoraService _agoraService = AgoraService();
   bool isJoined = false;
-  double volume = 0.0;
+  List<double> _spectrumData = List.generate(13, (index) => 0.0);
   bool shouldUpdate = true;
-  double _maxVolumeSeen = 1.0;
   bool _isInitializing = true;
   String? _errorMessage;
   bool _isDisposed = false;
@@ -49,6 +47,7 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
   Future<void> _dispose() async {
     // Clear the callbacks to prevent memory leaks
     _agoraService.onUserSpeaking = null;
+    _agoraService.onAudioSpectrum = null;
     _agoraService.onError = null;
     _agoraService.onUserJoined = null;
     _agoraService.onCallEnded = null;
@@ -112,15 +111,17 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
   }
 
   void _setupAgoraCallbacks() {
-    // User speaking callback for waveform animation
-    _agoraService.onUserSpeaking = (uid, isSpeaking) {
+    // Audio spectrum callback for waveform animation
+    _agoraService.onAudioSpectrum = (spectrumData) {
       if (!_isDisposed && mounted) {
-        if (isSpeaking) {
-          _updateWaveform(0.7);
-        } else {
-          _updateWaveform(0.0);
-        }
+        _updateWaveformSpectrum(spectrumData);
       }
+    };
+
+    // User speaking callback (keep for other UI indicators if needed)
+    _agoraService.onUserSpeaking = (uid, isSpeaking) {
+      // This is now handled by the spectrum callback
+      // but we keep it for any other speaking indicators
     };
 
     // Error callback
@@ -178,19 +179,11 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
     };
   }
 
-  void _updateWaveform(double newVolume) {
-    if (newVolume > _maxVolumeSeen) {
-      _maxVolumeSeen = newVolume;
-    }
-
+  void _updateWaveformSpectrum(List<double> spectrumData) {
     if (shouldUpdate && !_isDisposed && mounted) {
       shouldUpdate = !shouldUpdate;
       setState(() {
-        if (_maxVolumeSeen == 0) {
-          volume = 0; // avoid divide by zero
-        } else {
-          volume = (newVolume / _maxVolumeSeen).clamp(0.0, 1.0);
-        }
+        _spectrumData = List.from(spectrumData);
       });
     }
   }
@@ -352,7 +345,7 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
             ],
           ),
           child: CustomPaint(
-            painter: WaveformWidget(volume),
+            painter: WaveformWidget(_spectrumData),
           ),
         ),
         

@@ -2,50 +2,80 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
 class WaveformWidget extends CustomPainter {
-  final double amplitude;
+  final List<double> spectrumData;
 
-  WaveformWidget(this.amplitude);
+  WaveformWidget(this.spectrumData);
 
-@override
-void paint(Canvas canvas, Size size) {
-  const double maxBarHeight = 100.0;
-  final double halfBarHeight = maxBarHeight / 2;
+  @override
+  void paint(Canvas canvas, Size size) {
+    const double maxBarHeight = 80.0;
+    final double centerY = size.height / 2;
 
-  final Paint paint = Paint()
-    ..color = Colors.purple
-    ..strokeWidth = 3
-    ..style = PaintingStyle.stroke
-    ..strokeCap = StrokeCap.round;
+    final Paint paint = Paint()
+      ..color = const Color(0xFF985021)
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
 
-  final double centerY = size.height / 2;
+    // Use spectrum data or fallback to silent state
+    final data = spectrumData.isNotEmpty
+        ? spectrumData
+        : List.generate(13, (index) => 0.0);
+    final numberOfBars = data.length;
 
-  // The wave uses 13 lines
-  const int numberOfPoints = 13;
+    // 70% of the total width for the waveform
+    final double waveformWidth = size.width * 0.7;
+    final double offsetX = (size.width - waveformWidth) / 2;
+    final double barSpacing = waveformWidth / (numberOfBars - 1);
 
-  // 80% of the total width
-  final double waveWidth = size.width * 0.5;
-  // Horizontal offset to center the wave
-  final double offsetX = (size.width - waveWidth) / 2;
+    // Draw individual bars based on spectrum data
+    for (int i = 0; i < numberOfBars; i++) {
+      final double x = offsetX + barSpacing * i;
 
-  final Path path = Path();
-  for (int i = 0; i < numberOfPoints; i++) {
-    // x runs from offsetX .. offsetX + waveWidth
-    final double x = offsetX + waveWidth * (i / (numberOfPoints - 1));
+      // Get the spectrum value for this bar (0.0 to 1.0)
+      double barValue = data[i].clamp(0.0, 1.0);
 
-    final double fluctuation = math.sin(i + amplitude * math.pi * 2)
-                               * amplitude
-                               * halfBarHeight;
+      // Apply some smoothing and minimum height for visual appeal
+      final double minHeight = 2.0;
+      final double barHeight = math.max(minHeight, barValue * maxBarHeight);
 
-    path.moveTo(x, centerY - fluctuation);
-    path.lineTo(x, centerY + fluctuation);
+      // Add slight animation curve for more natural movement
+      final double smoothedHeight =
+          _applySmoothingCurve(barHeight / maxBarHeight) * maxBarHeight;
+
+      // Draw the bar as a vertical line
+      final path = Path();
+      path.moveTo(x, centerY - smoothedHeight / 2);
+      path.lineTo(x, centerY + smoothedHeight / 2);
+
+      // Vary the color intensity based on the bar height for visual interest
+      final colorIntensity =
+          (smoothedHeight / maxBarHeight * 0.7 + 0.3).clamp(0.3, 1.0);
+      paint.color = Colors.purple.withOpacity(colorIntensity);
+
+      canvas.drawPath(path, paint);
+    }
   }
 
-  canvas.drawPath(path, paint);
-}
+  /// Apply a smoothing curve to make the animation more natural
+  double _applySmoothingCurve(double value) {
+    // Use an ease-out curve for more natural bar movement
+    return (1 - math.pow(1 - value, 2)).toDouble();
+  }
 
   @override
   bool shouldRepaint(covariant WaveformWidget oldDelegate) {
-    return oldDelegate.amplitude != amplitude;
+    // Check if spectrum data has changed
+    if (oldDelegate.spectrumData.length != spectrumData.length) {
+      return true;
+    }
+
+    for (int i = 0; i < spectrumData.length; i++) {
+      if ((oldDelegate.spectrumData[i] - spectrumData[i]).abs() > 0.01) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
-

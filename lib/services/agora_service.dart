@@ -1,11 +1,9 @@
 // lib/services/agora_service.dart
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
-import 'dart:math' show min;
+import 'dart:math' as math;
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
-import 'package:flutter/foundation.dart';
-import 'supabase_client.dart';
+import 'package:http/http.dart' as http;
 
 class AgoraService {
   static final AgoraService _instance = AgoraService._internal();
@@ -23,6 +21,7 @@ class AgoraService {
 
   // Callbacks
   Function(int uid, bool isSpeaking)? onUserSpeaking;
+  Function(List<double> spectrumData)? onAudioSpectrum;
   Function(int uid)? onUserJoined;
   Function(int uid, UserOfflineReasonType reason)? onUserOffline;
   Function(RtcConnection connection, RtcStats stats)? onRtcStats;
@@ -145,6 +144,9 @@ class AgoraService {
         reportVad: true,
       );
 
+      // Enable audio spectrum monitoring for waveform visualization
+      await _engine!.enableAudioSpectrumMonitor(intervalInMS: 100);
+
       // Disable video
       await _engine!.disableVideo();
 
@@ -249,7 +251,17 @@ class AgoraService {
           for (final speaker in speakers) {
             final uid = speaker.uid ?? 0;
             final volume = speaker.volume ?? 0;
-            onUserSpeaking?.call(uid, volume > 10);
+            final isSpeaking = volume > 10;
+            onUserSpeaking?.call(uid, isSpeaking);
+            
+            // Generate simulated spectrum data when someone is speaking
+            if (isSpeaking && onAudioSpectrum != null) {
+              final spectrumValues = _generateSpectrumFromVolume(volume / 255.0);
+              onAudioSpectrum?.call(spectrumValues);
+            } else if (!isSpeaking && onAudioSpectrum != null) {
+              // Silent - all bars at minimal level
+              onAudioSpectrum?.call(List.generate(13, (index) => 0.0));
+            }
           }
         },
         onLeaveChannel: (RtcConnection connection, RtcStats stats) {
@@ -274,6 +286,40 @@ class AgoraService {
         },
       ),
     );
+  }
+
+  /// Generate simulated spectrum data from volume level
+  List<double> _generateSpectrumFromVolume(double normalizedVolume) {
+    final random = math.Random();
+    final spectrumValues = <double>[];
+    
+    // Create 13 bars with different characteristics
+    for (int i = 0; i < 13; i++) {
+      double barValue;
+      
+      if (normalizedVolume < 0.1) {
+        // Very quiet - minimal activity
+        barValue = random.nextDouble() * 0.1;
+      } else {
+        // Base the bar height on volume with some randomness
+        // Lower frequency bands (bass) tend to be stronger
+        final frequencyWeight = i < 4 ? 1.0 : (i < 8 ? 0.8 : 0.6);
+        final baseValue = normalizedVolume * frequencyWeight;
+        
+        // Add randomness for natural variation (±30%)
+        final randomFactor = 0.7 + (random.nextDouble() * 0.6);
+        barValue = (baseValue * randomFactor).clamp(0.0, 1.0);
+        
+        // Add some occasional peaks for visual interest
+        if (random.nextDouble() < 0.2) {
+          barValue = math.min(barValue * 1.5, 1.0);
+        }
+      }
+      
+      spectrumValues.add(barValue);
+    }
+    
+    return spectrumValues;
   }
 
   /// Safely renew token (prevents concurrent renewals)
@@ -307,7 +353,7 @@ class AgoraService {
 
         // Log token details for debugging
         print(
-            'AgoraService: New token starts with: ${newToken.substring(0, min(20, newToken.length))}...');
+            'AgoraService: New token starts with: ${newToken.substring(0, math.min(20, newToken.length))}...');
         print('AgoraService: Token length: ${newToken.length}');
 
         // Only update if we got a different token
@@ -458,14 +504,8 @@ class AgoraService {
     try {
       final Map<String, dynamic> requestBody = {
         'channelName': channelName,
-        'uid': uid,
-        'role': 'publisher',
+        'uid': uid, // Send as number, not string
       };
-
-      // Include callId if provided (required for backend UID validation)
-      if (callId != null) {
-        requestBody['callId'] = callId;
-      }
 
       print('AgoraService: === TOKEN REQUEST DEBUG ===');
       print(
@@ -474,19 +514,26 @@ class AgoraService {
           'AgoraService: Current stored channel: $_currentChannel, current stored callId: $_currentCallId');
       print('AgoraService: Request body: ${jsonEncode(requestBody)}');
 
-      final response = await SupabaseClient.instance.client.functions.invoke(
-        'generate-agora-token',
-        body: requestBody,
+      final response = await http.post(
+        Uri.parse('https://agora-token-server-v2.vercel.app/api/generate-token'),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(requestBody),
       );
 
-      if (response.data == null ||
-          response.data['token'] == null ||
-          response.data['appId'] == null) {
-        throw Exception('Invalid token response');
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}: ${response.body}');
+      }
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (data['token'] == null || data['appId'] == null) {
+        throw Exception('Invalid token response: missing token or appId');
       }
 
       print('AgoraService: Token request successful!');
-      return response.data as Map<String, dynamic>;
+      return data;
     } catch (e) {
       print('AgoraService: Error generating token: $e');
       throw Exception('Failed to generate token: $e');

@@ -1,50 +1,50 @@
 PODS:
-  - agora_rtc_engine (6.5.1):
-    - AgoraIrisRTC_iOS (= 4.5.1-build.1)
-    - AgoraRtcEngine_iOS (= 4.5.1)
+  - agora_rtc_engine (6.5.2):
+    - AgoraIrisRTC_iOS (= 4.5.2-build.1)
+    - AgoraRtcEngine_iOS (= 4.5.2)
     - Flutter
-  - AgoraInfra_iOS (1.2.13)
-  - AgoraIrisRTC_iOS (4.5.1-build.1)
-  - AgoraRtcEngine_iOS (4.5.1):
-    - AgoraRtcEngine_iOS/AIAEC (= 4.5.1)
-    - AgoraRtcEngine_iOS/AIAECLL (= 4.5.1)
-    - AgoraRtcEngine_iOS/AINS (= 4.5.1)
-    - AgoraRtcEngine_iOS/AINSLL (= 4.5.1)
-    - AgoraRtcEngine_iOS/AudioBeauty (= 4.5.1)
-    - AgoraRtcEngine_iOS/ClearVision (= 4.5.1)
-    - AgoraRtcEngine_iOS/ContentInspect (= 4.5.1)
-    - AgoraRtcEngine_iOS/FaceCapture (= 4.5.1)
-    - AgoraRtcEngine_iOS/FaceDetection (= 4.5.1)
-    - AgoraRtcEngine_iOS/LipSync (= 4.5.1)
-    - AgoraRtcEngine_iOS/ReplayKit (= 4.5.1)
-    - AgoraRtcEngine_iOS/RtcBasic (= 4.5.1)
-    - AgoraRtcEngine_iOS/SpatialAudio (= 4.5.1)
-    - AgoraRtcEngine_iOS/VideoAv1CodecDec (= 4.5.1)
-    - AgoraRtcEngine_iOS/VideoAv1CodecEnc (= 4.5.1)
-    - AgoraRtcEngine_iOS/VideoCodecDec (= 4.5.1)
-    - AgoraRtcEngine_iOS/VideoCodecEnc (= 4.5.1)
-    - AgoraRtcEngine_iOS/VirtualBackground (= 4.5.1)
-    - AgoraRtcEngine_iOS/VQA (= 4.5.1)
-  - AgoraRtcEngine_iOS/AIAEC (4.5.1)
-  - AgoraRtcEngine_iOS/AIAECLL (4.5.1)
-  - AgoraRtcEngine_iOS/AINS (4.5.1)
-  - AgoraRtcEngine_iOS/AINSLL (4.5.1)
-  - AgoraRtcEngine_iOS/AudioBeauty (4.5.1)
-  - AgoraRtcEngine_iOS/ClearVision (4.5.1)
-  - AgoraRtcEngine_iOS/ContentInspect (4.5.1)
-  - AgoraRtcEngine_iOS/FaceCapture (4.5.1)
-  - AgoraRtcEngine_iOS/FaceDetection (4.5.1)
-  - AgoraRtcEngine_iOS/LipSync (4.5.1)
-  - AgoraRtcEngine_iOS/ReplayKit (4.5.1)
-  - AgoraRtcEngine_iOS/RtcBasic (4.5.1):
-    - AgoraInfra_iOS (= 1.2.13)
-  - AgoraRtcEngine_iOS/SpatialAudio (4.5.1)
-  - AgoraRtcEngine_iOS/VideoAv1CodecDec (4.5.1)
-  - AgoraRtcEngine_iOS/VideoAv1CodecEnc (4.5.1)
-  - AgoraRtcEngine_iOS/VideoCodecDec (4.5.1)
-  - AgoraRtcEngine_iOS/VideoCodecEnc (4.5.1)
-  - AgoraRtcEngine_iOS/VirtualBackground (4.5.1)
-  - AgoraRtcEngine_iOS/VQA (4.5.1)
+  - AgoraInfra_iOS (1.2.13.1)
+  - AgoraIrisRTC_iOS (4.5.2-build.1)
+  - AgoraRtcEngine_iOS (4.5.2):
+    - AgoraRtcEngine_iOS/AIAEC (= 4.5.2)
+    - AgoraRtcEngine_iOS/AIAECLL (= 4.5.2)
+    - AgoraRtcEngine_iOS/AINS (= 4.5.2)
+    - AgoraRtcEngine_iOS/AINSLL (= 4.5.2)
+    - AgoraRtcEngine_iOS/AudioBeauty (= 4.5.2)
+    - AgoraRtcEngine_iOS/ClearVision (= 4.5.2)
+    - AgoraRtcEngine_iOS/ContentInspect (= 4.5.2)
+    - AgoraRtcEngine_iOS/FaceCapture (= 4.5.2)
+    - AgoraRtcEngine_iOS/FaceDetection (= 4.5.2)
+    - AgoraRtcEngine_iOS/LipSync (= 4.5.2)
+    - AgoraRtcEngine_iOS/ReplayKit (= 4.5.2)
+    - AgoraRtcEngine_iOS/RtcBasic (= 4.5.2)
+    - AgoraRtcEngine_iOS/SpatialAudio (= 4.5.2)
+    - AgoraRtcEngine_iOS/VideoAv1CodecDec (= 4.5.2)
+    - AgoraRtcEngine_iOS/VideoAv1CodecEnc (= 4.5.2)
+    - AgoraRtcEngine_iOS/VideoCodecDec (= 4.5.2)
+    - AgoraRtcEngine_iOS/VideoCodecEnc (= 4.5.2)
+    - AgoraRtcEngine_iOS/VirtualBackground (= 4.5.2)
+    - AgoraRtcEngine_iOS/VQA (= 4.5.2)
+  - AgoraRtcEngine_iOS/AIAEC (4.5.2)
+  - AgoraRtcEngine_iOS/AIAECLL (4.5.2)
+  - AgoraRtcEngine_iOS/AINS (4.5.2)
+  - AgoraRtcEngine_iOS/AINSLL (4.5.2)
+  - AgoraRtcEngine_iOS/AudioBeauty (4.5.2)
+  - AgoraRtcEngine_iOS/ClearVision (4.5.2)
+  - AgoraRtcEngine_iOS/ContentInspect (4.5.2)
+  - AgoraRtcEngine_iOS/FaceCapture (4.5.2)
+  - AgoraRtcEngine_iOS/FaceDetection (4.5.2)
+  - AgoraRtcEngine_iOS/LipSync (4.5.2)
+  - AgoraRtcEngine_iOS/ReplayKit (4.5.2)
+  - AgoraRtcEngine_iOS/RtcBasic (4.5.2):
+    - AgoraInfra_iOS (= 1.2.13.1)
+  - AgoraRtcEngine_iOS/SpatialAudio (4.5.2)
+  - AgoraRtcEngine_iOS/VideoAv1CodecDec (4.5.2)
+  - AgoraRtcEngine_iOS/VideoAv1CodecEnc (4.5.2)
+  - AgoraRtcEngine_iOS/VideoCodecDec (4.5.2)
+  - AgoraRtcEngine_iOS/VideoCodecEnc (4.5.2)
+  - AgoraRtcEngine_iOS/VirtualBackground (4.5.2)
+  - AgoraRtcEngine_iOS/VQA (4.5.2)
   - amplify_auth_cognito (0.0.1):
     - Flutter
     - FlutterMacOS
@@ -188,10 +188,10 @@ EXTERNAL SOURCES:
     :path: ".symlinks/plugins/url_launcher_ios/ios"
 
 SPEC CHECKSUMS:
-  agora_rtc_engine: 7434787c0b5284d803c31c726562b8399b8c1744
-  AgoraInfra_iOS: 65e11a2183ab7836258768868d06058c22701b13
-  AgoraIrisRTC_iOS: dd3d957c25be6bd2b2a5d03fe706ebe8a46909f0
-  AgoraRtcEngine_iOS: 5092a058c7b2842db39d8ca614d451af6f84969a
+  agora_rtc_engine: 6a8683bd2d8473e36f059d3bac5f1f475199d571
+  AgoraInfra_iOS: 3691b2b277a1712a35ae96de25af319de0d73d08
+  AgoraIrisRTC_iOS: eab58c126439adf5ec99632828a558ea216860da
+  AgoraRtcEngine_iOS: 97e2398a2addda9057815a2a583a658e36796ff6
   amplify_auth_cognito: a5d9cb77abfbe05e3501ad0c45dddc81503e7074
   amplify_secure_storage: 3edc30177ffefbcee786c408a21c02f8ab9f168e
   app_links: 76b66b60cc809390ca1ad69bfd66b998d2387ac7
@@ -204,7 +204,7 @@ SPEC CHECKSUMS:
   google_maps_flutter_ios: 0291eb2aa252298a769b04d075e4a9d747ff7264
   GoogleMaps: 8939898920281c649150e0af74aa291c60f2e77d
   image_picker_ios: 7fe1ff8e34c1790d6fff70a32484959f563a928a
-  iris_method_channel: b9db2053dac3dc84e256c8792eff6f11323a53bd
+  iris_method_channel: 7d661cf3259b3009ae423508470dbeb9374446ee
   libwebp: 02b23773aedb6ff1fd38cec7a77b81414c6842a8
   Mantle: c5aa8794a29a022dfbbfc9799af95f477a69b62d
   package_info_plus: af8e2ca6888548050f16fa2f1938db7b5a5df499
