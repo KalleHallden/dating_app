@@ -6,20 +6,27 @@ import 'profile_page.dart';
 import 'settings_page.dart';
 
 class HomePage extends StatefulWidget {
-	const HomePage({ Key? key }) : super(key: key);
+	final int initialIndex;
+	const HomePage({ Key? key, this.initialIndex = 0 }) : super(key: key);
   @override
   _HomePageState createState() => _HomePageState();
 }
 
 class _HomePageState extends State<HomePage> {
 	
-  int _selectedIndex = 0;
+  late int _selectedIndex;
   static final List<Widget> _pages = <Widget>[
 	  TalkPage(),
 	  MatchesPage(),
 	  ProfilePage(),
 
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.initialIndex;
+  }
 
   void _onItemTapped(int index) {
     setState(() => _selectedIndex = index);

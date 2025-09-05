@@ -52,6 +52,10 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   String? _partnerId;
   String? _lastPartnerId; // Track last partner for cache clearing
 
+  // Store leave call context for proper navigation handling
+  String _leaveReason = 'manual';
+  bool _leaveCallShouldReturnHome = false;
+
   // New fields for time limits
   User? _currentUser;
   Timer? _callDurationTimer;
@@ -179,7 +183,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   }
 
   void _startCallDurationTimer() {
-    _callSecondsRemaining = 300; // Reset to 5 minutes
+    _callSecondsRemaining = 300; //300 Reset to 5 minutes
     _showTimeWarning = false;
 
     _callDurationTimer?.cancel();
@@ -232,7 +236,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       );
     }
 
-    await _leaveCall();
+    await _leaveCall(shouldReturnHome: false, reason: 'timeout');
   }
 
   String _formatCallTime() {
@@ -336,16 +340,30 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Reload remaining minutes after call
         await _loadRemainingMinutes();
 
-        // Stay on call page to allow for new connections instead of going to HomePage
-        // Reset the flag and stay on call page for matchmaking
-        _isSkippingToNext = false;
-        setState(() => _isConnecting = false);
-
-        // Check if user has minutes before rejoining
-        if (_outOfMinutes) {
-          _showOutOfMinutesDialog();
+        // Handle navigation based on the leave reason
+        if (_leaveCallShouldReturnHome) {
+          // User pressed "Leave" - go back to talk page
+          safePrint('CallPage: User left call, navigating to HomePage');
+          if (mounted) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (_) => const HomePage()),
+              (_) => false,
+            );
+          }
         } else {
-          _joinMatchmaking();
+          // Timeout or Skip - stay on call page to allow for new connections
+          safePrint(
+              'CallPage: Call ended (${_leaveReason}), staying on CallPage for new match');
+          _isSkippingToNext = false;
+          setState(() => _isConnecting = false);
+
+          // Check if user has minutes before rejoining
+          if (_outOfMinutes) {
+            _showOutOfMinutesDialog();
+          } else {
+            _joinMatchmaking();
+          }
         }
         return;
 
@@ -614,7 +632,12 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     safePrint('joinMatchmaking request sent from Flutter.');
   }
 
-  Future<void> _leaveCall({bool shouldReturnHome = true}) async {
+  Future<void> _leaveCall(
+      {bool shouldReturnHome = true, String reason = 'manual'}) async {
+    // Store context for navigation handling in leftCall response
+    _leaveReason = reason;
+    _leaveCallShouldReturnHome = shouldReturnHome;
+
     // Set flag to indicate if we're skipping to next person
     _isSkippingToNext = !shouldReturnHome;
     if (_currentSupabaseCallId == null) {
@@ -638,6 +661,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       'leaveCall',
       data: {
         'callId': _currentSupabaseCallId,
+        'reason': reason, // Pass the reason for leaving
+        'shouldReturnHome': shouldReturnHome, // Pass navigation intent
       },
     );
 
@@ -905,7 +930,8 @@ Don't try to be someone else's match, try to find yours.'''
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: _leaveCall,
+                  onPressed: () =>
+                      _leaveCall(shouldReturnHome: true, reason: 'leave'),
                   style: ButtonStyle(
                     backgroundColor: MaterialStateProperty.all(Colors.red),
                   ),
@@ -972,7 +998,8 @@ Don't try to be someone else's match, try to find yours.'''
                       onNextPressed: () async {
                         // The dislike is already handled by the button
                         // Now trigger leave call but stay on the page
-                        await _leaveCall(shouldReturnHome: false);
+                        await _leaveCall(
+                            shouldReturnHome: false, reason: 'skip');
                       },
                     ),
                   // Progress bar

@@ -30,19 +30,20 @@ class MatchedUsersCallPage extends StatefulWidget {
   State<MatchedUsersCallPage> createState() => _MatchedUsersCallPageState();
 }
 
-class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with TickerProviderStateMixin {
+class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
+    with TickerProviderStateMixin {
   final CallService _callService = CallService();
   supabase.RealtimeChannel? _callStatusChannel;
   bool _isCallActive = false;
   bool _isLeavingCall = false;
   String _callStatus = 'pending';
   int? _assignedUid; // Store the assigned UID from backend
-  
+
   // Timer for call duration
   Timer? _durationTimer;
   DateTime? _callStartTime;
   Duration _callDuration = Duration.zero;
-  
+
   // Call limits checking
   Timer? _callLimitsTimer;
   int _maxCallDurationSeconds = 300; // Default 5 minutes
@@ -67,7 +68,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     super.initState();
     _assignedUid = widget.assignedUid; // Use provided UID if available
     _subscribeToCallStatus();
-    
+
     // If not initiator, we already accepted, so start the call immediately
     if (!widget.isInitiator) {
       _startCall();
@@ -83,12 +84,12 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     _callStatusChannel?.unsubscribe();
     _durationTimer?.cancel();
     _callLimitsTimer?.cancel();
-    
+
     // Ensure we set the user as not in call when disposing
     OnlineStatusService().setInCall(false);
     // Force refresh status to ensure it's properly updated
     OnlineStatusService().forceRefreshStatus();
-    
+
     super.dispose();
   }
 
@@ -97,12 +98,12 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       widget.callId,
       onUpdate: (callData) {
         if (!mounted) return;
-        
+
         final previousStatus = _callStatus;
         setState(() {
           _callStatus = callData['status'] ?? 'pending';
         });
-        
+
         // Handle different call statuses
         switch (_callStatus) {
           case 'accepted':
@@ -124,27 +125,27 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
 
   Future<void> _startCall() async {
     if (_isCallActive) return;
-    
+
     // Fetch UID if not provided
     if (_assignedUid == null) {
       await _fetchAssignedUid();
     }
-    
+
     setState(() {
       _isCallActive = true;
       _callStartTime = DateTime.now();
     });
-    
+
     // Start duration timer
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (mounted) {
         setState(() {
           _callDuration = DateTime.now().difference(_callStartTime!);
-          
+
           // Update local remaining seconds countdown
           if (_actualSecondsRemaining > 0) {
             _actualSecondsRemaining--;
-            
+
             // Show warning at 30 seconds
             if (_actualSecondsRemaining == 30 && !_showTimeWarning) {
               _showTimeWarning = true;
@@ -154,29 +155,30 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
         });
       }
     });
-    
+
     // Start call limits checking timer
     _startCallLimitsChecking();
-    
+
     // Set user as in call
     OnlineStatusService().setInCall(true);
   }
 
   Future<void> _fetchAssignedUid() async {
     try {
-      print('MatchedUsersCallPage: Fetching assigned UID for call ${widget.callId}');
+      print(
+          'MatchedUsersCallPage: Fetching assigned UID for call ${widget.callId}');
       final supabaseClient = SupabaseClient.instance.client;
-      
+
       // Fetch call data from database to get assigned UID
       final callResponse = await supabaseClient
           .from('calls')
           .select('caller_uid, called_uid, caller_id')
           .eq('id', widget.callId)
           .maybeSingle();
-      
+
       if (callResponse != null) {
         final currentUserId = supabaseClient.auth.currentUser?.id;
-        
+
         // Determine which UID to use based on whether we're caller or called
         if (callResponse['caller_id'] == currentUserId) {
           _assignedUid = callResponse['caller_uid'] as int?;
@@ -185,45 +187,51 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
           _assignedUid = callResponse['called_uid'] as int?;
           print('MatchedUsersCallPage: Using called UID: $_assignedUid');
         }
-        
+
         if (_assignedUid == null) {
-          print('MatchedUsersCallPage: Warning - No UID assigned in database for this call');
+          print(
+              'MatchedUsersCallPage: Warning - No UID assigned in database for this call');
           // Generate a random UID as fallback
           _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
           print('MatchedUsersCallPage: Using fallback UID: $_assignedUid');
         }
       } else {
-        print('MatchedUsersCallPage: Call not found in database, using fallback UID');
+        print(
+            'MatchedUsersCallPage: Call not found in database, using fallback UID');
         _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
       }
     } catch (e) {
       print('MatchedUsersCallPage: Error fetching UID: $e');
       // Use fallback UID
       _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
-      print('MatchedUsersCallPage: Using fallback UID after error: $_assignedUid');
+      print(
+          'MatchedUsersCallPage: Using fallback UID after error: $_assignedUid');
     }
   }
 
   Future<void> _checkIfCallAlreadyAccepted() async {
     try {
-      print('MatchedUsersCallPage: Checking if call ${widget.callId} is already accepted');
+      print(
+          'MatchedUsersCallPage: Checking if call ${widget.callId} is already accepted');
       final supabaseClient = SupabaseClient.instance.client;
-      
+
       // Fetch current call status from database
       final callResponse = await supabaseClient
           .from('calls')
           .select('status')
           .eq('id', widget.callId)
           .maybeSingle();
-      
+
       if (callResponse != null && callResponse['status'] == 'accepted') {
-        print('MatchedUsersCallPage: Call is already accepted, starting call for initiator');
+        print(
+            'MatchedUsersCallPage: Call is already accepted, starting call for initiator');
         setState(() {
           _callStatus = 'accepted';
         });
         await _startCall();
       } else {
-        print('MatchedUsersCallPage: Call not yet accepted, waiting for acceptance');
+        print(
+            'MatchedUsersCallPage: Call not yet accepted, waiting for acceptance');
       }
     } catch (e) {
       print('MatchedUsersCallPage: Error checking call status: $e');
@@ -234,8 +242,9 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     // Set user as not in call and force status update
     OnlineStatusService().setInCall(false);
     OnlineStatusService().forceRefreshStatus();
-    
-    _showMessage('${widget.matchedUser['name']} declined the call', isError: true);
+
+    _showMessage('${widget.matchedUser['name']} declined the call',
+        isError: true);
     _navigateBack();
   }
 
@@ -243,11 +252,11 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     // Cancel timers
     _callLimitsTimer?.cancel();
     _durationTimer?.cancel();
-    
+
     // Set user as not in call and force status update
     OnlineStatusService().setInCall(false);
     OnlineStatusService().forceRefreshStatus();
-    
+
     if (!_isAutoEnding) {
       _showMessage('Call ended');
     }
@@ -257,14 +266,14 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   void _startCallLimitsChecking() {
     // Check immediately, then every 15 seconds
     _checkCallLimits();
-    
+
     _callLimitsTimer = Timer.periodic(const Duration(seconds: 15), (timer) {
       if (_isCallActive && !_isLeavingCall && !_isAutoEnding) {
         _checkCallLimits();
       }
     });
   }
-  
+
   Future<void> _checkCallLimits() async {
     try {
       final supabaseClient = SupabaseClient.instance.client;
@@ -274,16 +283,16 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
           'call_id': widget.callId,
         },
       );
-      
+
       if (response.status == 200 && response.data != null) {
         final data = response.data as Map<String, dynamic>;
-        
+
         if (mounted) {
           setState(() {
             _callerSecondsRemaining = data['callerSecondsRemaining'] ?? 300;
             _calledSecondsRemaining = data['calledSecondsRemaining'] ?? 300;
             _maxCallDurationSeconds = data['maxDurationSeconds'] ?? 300;
-            
+
             // Calculate actual remaining seconds (minimum of all limits)
             final durationSeconds = data['durationSeconds'] ?? 0;
             final timeRemaining = _maxCallDurationSeconds - durationSeconds;
@@ -292,14 +301,14 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
               _callerSecondsRemaining,
               _calledSecondsRemaining,
             ].reduce((a, b) => a < b ? a : b).toInt();
-            
+
             // Ensure we don't go negative
             if (_actualSecondsRemaining < 0) {
               _actualSecondsRemaining = 0;
             }
           });
         }
-        
+
         // Check if call should end
         if (data['shouldEnd'] == true) {
           _handleAutoEnd(data['reason'] ?? 'Call time limit reached');
@@ -310,21 +319,21 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       // Don't end call on error, just continue
     }
   }
-  
+
   void _handleAutoEnd(String reason) {
     if (_isAutoEnding || _isLeavingCall) return;
-    
+
     setState(() {
       _isAutoEnding = true;
     });
-    
+
     // Cancel timers
     _callLimitsTimer?.cancel();
     _durationTimer?.cancel();
-    
+
     // Show reason to user
     _showMessage(reason, duration: const Duration(seconds: 5));
-    
+
     // Clean up and navigate back after showing message
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
@@ -334,26 +343,26 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       }
     });
   }
-  
+
   void _showCallEndingWarning() {
     if (!mounted) return;
-    
-    _showMessage('Call ending in 30 seconds...', 
-      isError: false, 
-      duration: const Duration(seconds: 5),
-      backgroundColor: Colors.orange);
+
+    _showMessage('Call ending in 30 seconds...',
+        isError: false,
+        duration: const Duration(seconds: 5),
+        backgroundColor: Colors.orange);
   }
 
   Future<void> _endCall() async {
     if (_isLeavingCall) return;
-    
+
     setState(() {
       _isLeavingCall = true;
     });
-    
+
     // Cancel the call limits timer when manually ending
     _callLimitsTimer?.cancel();
-    
+
     // Don't send end call if it's auto-ending (backend already ended it)
     if (_isAutoEnding) {
       _navigateBack();
@@ -363,16 +372,16 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     try {
       // Set user as available when leaving call
       OnlineStatusService().setInCall(false);
-      
+
       // Call the manage-call edge function with action: 'end'
       final supabaseClient = SupabaseClient.instance.client;
       final currentUser = supabaseClient.auth.currentUser;
-      
+
       if (currentUser != null) {
         print('Attempting to call manage-call edge function...');
         print('CallId: ${widget.callId}');
         print('UserId: ${currentUser.id}');
-        
+
         try {
           final response = await supabaseClient.functions.invoke(
             'manage-call',
@@ -381,10 +390,10 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
               'action': 'end',
             },
           );
-          
+
           print('Edge function response status: ${response.status}');
           print('Edge function response data: ${response.data}');
-          
+
           if (response.status != 200) {
             print('Edge function error: ${response.data}');
           } else {
@@ -397,19 +406,19 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       } else {
         print('No authenticated user found - cannot call edge function');
       }
-      
+
       // Update call status to ended (fallback) - only if not auto-ending
       if (!_isAutoEnding) {
         await _callService.endCall(widget.callId);
       }
-      
+
       // Force refresh online status after a short delay to ensure it's registered
       await Future.delayed(const Duration(milliseconds: 500));
       await OnlineStatusService().forceRefreshStatus();
-      
+
       // Additional delay to ensure the other user sees the status update
       await Future.delayed(const Duration(milliseconds: 500));
-      
+
       _navigateBack();
     } catch (e) {
       print('Error ending call: $e');
@@ -422,16 +431,19 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
 
   void _navigateBack() {
     if (mounted) {
+      // For direct calls, navigate back to home page with matches tab selected
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const CallPage()),
-        (route) => route.settings.name == '/home',
+        MaterialPageRoute(
+            builder: (_) => const HomePage(initialIndex: 1)), // 1 = matches tab
+        (_) => false,
       );
     }
   }
 
-  void _showMessage(String message, {
-    bool isError = false, 
+  void _showMessage(
+    String message, {
+    bool isError = false,
     Duration duration = const Duration(seconds: 3),
     Color? backgroundColor,
   }) {
@@ -439,7 +451,8 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(message),
-          backgroundColor: backgroundColor ?? (isError ? Colors.red : Colors.grey),
+          backgroundColor:
+              backgroundColor ?? (isError ? Colors.red : Colors.grey),
           duration: duration,
         ),
       );
@@ -452,15 +465,17 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
     return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
   }
-  
+
   String _formatRemainingTime() {
     final minutes = (_actualSecondsRemaining ~/ 60);
     final seconds = (_actualSecondsRemaining % 60);
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
-  void _nextOption() => setState(() => currentIndex = (currentIndex + 1) % options.length);
-  void _prevOption() => setState(() => currentIndex = (currentIndex - 1 + options.length) % options.length);
+  void _nextOption() =>
+      setState(() => currentIndex = (currentIndex + 1) % options.length);
+  void _prevOption() => setState(() =>
+      currentIndex = (currentIndex - 1 + options.length) % options.length);
 
   @override
   Widget build(BuildContext context) {
@@ -484,7 +499,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                   ),
                 ),
               ),
-              
+
               // Main content
               Center(
                 child: Column(
@@ -503,21 +518,23 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                         ),
                       ),
                       child: ClipOval(
-                        child: widget.matchedUser['profile_picture_url'] != null && 
-                               widget.matchedUser['profile_picture_url'].isNotEmpty
-                            ? Image.network(
-                                widget.matchedUser['profile_picture_url'],
-                                fit: BoxFit.cover,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return _buildPlaceholderAvatar();
-                                },
-                              )
-                            : _buildPlaceholderAvatar(),
+                        child:
+                            widget.matchedUser['profile_picture_url'] != null &&
+                                    widget.matchedUser['profile_picture_url']
+                                        .isNotEmpty
+                                ? Image.network(
+                                    widget.matchedUser['profile_picture_url'],
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (context, error, stackTrace) {
+                                      return _buildPlaceholderAvatar();
+                                    },
+                                  )
+                                : _buildPlaceholderAvatar(),
                       ),
                     ),
-                    
+
                     const SizedBox(height: 40),
-                    
+
                     // User name
                     Text(
                       widget.matchedUser['name'] ?? 'Unknown',
@@ -527,22 +544,20 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                         color: Colors.white,
                       ),
                     ),
-                    
+
                     const SizedBox(height: 20),
-                    
+
                     // Status text
                     Text(
-                      widget.isInitiator
-                          ? 'Calling...'
-                          : 'Connecting...',
+                      widget.isInitiator ? 'Calling...' : 'Connecting...',
                       style: TextStyle(
                         fontSize: 18,
                         color: Colors.grey[400],
                       ),
                     ),
-                    
+
                     const SizedBox(height: 40),
-                    
+
                     // Loading indicator
                     CircularProgressIndicator(
                       valueColor: AlwaysStoppedAnimation<Color>(Colors.green),
@@ -550,7 +565,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                   ],
                 ),
               ),
-              
+
               // Bottom action button
               Positioned(
                 bottom: 50,
@@ -582,8 +597,8 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
           children: [
             // Profile picture (no blur)
             Positioned.fill(
-              child: widget.matchedUser['profile_picture_url'] != null && 
-                     widget.matchedUser['profile_picture_url'].isNotEmpty
+              child: widget.matchedUser['profile_picture_url'] != null &&
+                      widget.matchedUser['profile_picture_url'].isNotEmpty
                   ? Image.network(
                       widget.matchedUser['profile_picture_url'],
                       fit: BoxFit.cover,
@@ -611,14 +626,14 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                       ),
                     ),
             ),
-            
+
             // Dark overlay for better text visibility
             Positioned.fill(
               child: Container(
                 color: Colors.black.withOpacity(0.3),
               ),
             ),
-            
+
             // Top bar with name and duration
             Positioned(
               top: 40,
@@ -650,9 +665,10 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                       const SizedBox(height: 2),
                       // Remaining time
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
                         decoration: BoxDecoration(
-                          color: _actualSecondsRemaining <= 30 
+                          color: _actualSecondsRemaining <= 30
                               ? Colors.red.withOpacity(0.8)
                               : _actualSecondsRemaining <= 60
                                   ? Colors.orange.withOpacity(0.8)
@@ -674,8 +690,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                     onPressed: _isLeavingCall ? null : _endCall,
                     style: ButtonStyle(
                       backgroundColor: MaterialStateProperty.all(
-                        _isLeavingCall ? Colors.grey : Colors.red
-                      ),
+                          _isLeavingCall ? Colors.grey : Colors.red),
                     ),
                     child: Text(
                       _isLeavingCall ? 'Ending...' : 'End',
@@ -685,7 +700,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                 ],
               ),
             ),
-            
+
             // Audio component
             Align(
               alignment: Alignment.center,
@@ -695,14 +710,15 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                 uid: _assignedUid,
               ),
             ),
-            
+
             // Bottom section with conversation starter
             Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
                 padding: const EdgeInsets.only(bottom: 40),
                 child: Card(
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16)),
                   elevation: 8,
                   child: Container(
                     width: MediaQuery.of(context).size.width * 0.9,
@@ -712,7 +728,8 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                       children: [
                         const Text(
                           'Conversation Starter',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 10),
                         Row(
@@ -734,7 +751,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
                               onPressed: _nextOption,
                             ),
                           ],
-			),
+                        ),
                       ],
                     ),
                   ),
