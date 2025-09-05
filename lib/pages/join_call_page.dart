@@ -334,53 +334,13 @@ class _JoinChannelAudioState extends State<JoinChannelAudio> {
           width: 200,
           height: 200,
           decoration: BoxDecoration(
-            color: Colors.white,
+            color: Colors.transparent,
             shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black26,
-                blurRadius: 8.0,
-                offset: const Offset(2, 4),
-              ),
-            ],
           ),
           child: CustomPaint(
             painter: WaveformWidget(_spectrumData),
           ),
         ),
-        
-        const SizedBox(height: 16),
-        
-        // Connection status
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              isJoined ? Icons.fiber_manual_record : Icons.hourglass_empty,
-              color: isJoined ? Colors.green : Colors.orange,
-              size: 12,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _connectionStatus,
-              style: const TextStyle(color: Colors.white70, fontSize: 12),
-            ),
-          ],
-        ),
-        
-        if (isJoined) ...[
-          const SizedBox(height: 8),
-          Text(
-            'Channel: ${widget.channelID}',
-            style: const TextStyle(color: Colors.white54, fontSize: 10),
-          ),
-          if (_currentUid != null) ...[
-            Text(
-              'UID: $_currentUid',
-              style: const TextStyle(color: Colors.white54, fontSize: 10),
-            ),
-          ],
-        ],
       ],
     );
   }

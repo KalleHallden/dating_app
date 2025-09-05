@@ -55,7 +55,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   // New fields for time limits
   User? _currentUser;
   Timer? _callDurationTimer;
-  int _callSecondsRemaining = 300; // 5 minutes in seconds
+  int _callSecondsRemaining = 300; // should be 300 = 5 minutes in seconds
   bool _showTimeWarning = false;
   bool _outOfMinutes = false;
 
@@ -135,7 +135,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     try {
       final response = await _supabaseClient
           .from('users')
-          .select('monthly_seconds_used, monthly_second_limit, total_lifetime_seconds, name, profile_picture')
+          .select(
+              'monthly_seconds_used, monthly_second_limit, total_lifetime_seconds, name, profile_picture')
           .eq('user_id', currentUser.id)
           .maybeSingle();
 
@@ -335,24 +336,16 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Reload remaining minutes after call
         await _loadRemainingMinutes();
 
-        // Only navigate to home page if we're not skipping to next person
-        if (!_isSkippingToNext) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (_) => const HomePage()),
-            (_) => false,
-          );
+        // Stay on call page to allow for new connections instead of going to HomePage
+        // Reset the flag and stay on call page for matchmaking
+        _isSkippingToNext = false;
+        setState(() => _isConnecting = false);
+
+        // Check if user has minutes before rejoining
+        if (_outOfMinutes) {
+          _showOutOfMinutesDialog();
         } else {
-          // Reset the flag and stay on call page for matchmaking
-          _isSkippingToNext = false;
-          setState(() => _isConnecting = false);
-          
-          // Check if user has minutes before rejoining
-          if (_outOfMinutes) {
-            _showOutOfMinutesDialog();
-          } else {
-            _joinMatchmaking();
-          }
+          _joinMatchmaking();
         }
         return;
 
@@ -364,7 +357,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         _agoraChannelId = message['channelId'] as String;
         final String partnerId = message['partnerId'] as String;
         _assignedUid = message['assignedUid'] as int;
-        
+
         safePrint('Received callInitiated with assignedUid: $_assignedUid');
 
         // Clear cache if this is a different partner
@@ -454,6 +447,10 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _isCallActive = false;
           _currentSupabaseCallId = null;
           _agoraChannelId = null;
+          _matchedUserName = null;
+          _matchedUserProfilePicture = null;
+          _partnerId = null;
+          _assignedUid = null;
         });
         _progressController.stop();
         _progressTimer?.cancel();
@@ -462,11 +459,15 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
         await _loadRemainingMinutes();
 
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const HomePage()),
-          (_) => false,
-        );
+        // Stay on call page to allow for new connections instead of going to HomePage
+        setState(() => _isConnecting = false);
+
+        // Check if user has minutes before rejoining
+        if (_outOfMinutes) {
+          _showOutOfMinutesDialog();
+        } else {
+          _joinMatchmaking();
+        }
         return;
 
       case 'partnerLeftCall':
@@ -639,7 +640,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         'callId': _currentSupabaseCallId,
       },
     );
-    
+
     // The actual cleanup and navigation logic is handled in the 'leftCall' case
     // when we receive the confirmation from the backend
   }

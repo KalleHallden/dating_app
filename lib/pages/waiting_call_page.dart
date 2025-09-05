@@ -8,6 +8,7 @@ import '../services/call_service.dart';
 import 'join_call_page.dart';
 import 'home_page.dart';
 import 'matched_users_call_page.dart';
+import 'call_page.dart';
 
 class WaitingCallPage extends StatefulWidget {
   final String callId;
@@ -150,6 +151,7 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
           channelName: widget.channelName,
           matchedUser: widget.matchedUser,
           isInitiator: widget.isInitiator,
+          assignedUid: null, // Will be handled by the backend/call system
         ),
       ),
     );
@@ -204,8 +206,8 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
       _hasNavigated = true;
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
+        MaterialPageRoute(builder: (_) => const CallPage()),
+        (route) => route.settings.name == '/home',
       );
     }
   }

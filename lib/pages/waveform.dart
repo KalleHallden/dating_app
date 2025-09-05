@@ -51,7 +51,7 @@ class WaveformWidget extends CustomPainter {
       // Vary the color intensity based on the bar height for visual interest
       final colorIntensity =
           (smoothedHeight / maxBarHeight * 0.7 + 0.3).clamp(0.3, 1.0);
-      paint.color = Colors.purple.withOpacity(colorIntensity);
+      paint.color = Colors.white.withOpacity(colorIntensity);
 
       canvas.drawPath(path, paint);
     }

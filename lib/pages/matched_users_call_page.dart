@@ -8,12 +8,14 @@ import '../services/call_service.dart';
 import '../services/online_status_service.dart';
 import 'home_page.dart';
 import 'join_call_page.dart';
+import 'call_page.dart';
 
 class MatchedUsersCallPage extends StatefulWidget {
   final String callId;
   final String channelName;
   final Map<String, dynamic> matchedUser;
   final bool isInitiator;
+  final int? assignedUid;
 
   const MatchedUsersCallPage({
     Key? key,
@@ -21,6 +23,7 @@ class MatchedUsersCallPage extends StatefulWidget {
     required this.channelName,
     required this.matchedUser,
     required this.isInitiator,
+    this.assignedUid,
   }) : super(key: key);
 
   @override
@@ -33,6 +36,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   bool _isCallActive = false;
   bool _isLeavingCall = false;
   String _callStatus = 'pending';
+  int? _assignedUid; // Store the assigned UID from backend
   
   // Timer for call duration
   Timer? _durationTimer;
@@ -61,12 +65,16 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
   @override
   void initState() {
     super.initState();
+    _assignedUid = widget.assignedUid; // Use provided UID if available
     _subscribeToCallStatus();
     
-    // If initiator, wait for acceptance
-    // If not initiator, we already accepted, so start the call
+    // If not initiator, we already accepted, so start the call immediately
     if (!widget.isInitiator) {
       _startCall();
+    } else {
+      // For initiator, check if call is already accepted
+      // This happens when navigating from WaitingCallPage after acceptance
+      _checkIfCallAlreadyAccepted();
     }
   }
 
@@ -114,8 +122,13 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     );
   }
 
-  void _startCall() {
+  Future<void> _startCall() async {
     if (_isCallActive) return;
+    
+    // Fetch UID if not provided
+    if (_assignedUid == null) {
+      await _fetchAssignedUid();
+    }
     
     setState(() {
       _isCallActive = true;
@@ -147,6 +160,74 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     
     // Set user as in call
     OnlineStatusService().setInCall(true);
+  }
+
+  Future<void> _fetchAssignedUid() async {
+    try {
+      print('MatchedUsersCallPage: Fetching assigned UID for call ${widget.callId}');
+      final supabaseClient = SupabaseClient.instance.client;
+      
+      // Fetch call data from database to get assigned UID
+      final callResponse = await supabaseClient
+          .from('calls')
+          .select('caller_uid, called_uid, caller_id')
+          .eq('id', widget.callId)
+          .maybeSingle();
+      
+      if (callResponse != null) {
+        final currentUserId = supabaseClient.auth.currentUser?.id;
+        
+        // Determine which UID to use based on whether we're caller or called
+        if (callResponse['caller_id'] == currentUserId) {
+          _assignedUid = callResponse['caller_uid'] as int?;
+          print('MatchedUsersCallPage: Using caller UID: $_assignedUid');
+        } else {
+          _assignedUid = callResponse['called_uid'] as int?;
+          print('MatchedUsersCallPage: Using called UID: $_assignedUid');
+        }
+        
+        if (_assignedUid == null) {
+          print('MatchedUsersCallPage: Warning - No UID assigned in database for this call');
+          // Generate a random UID as fallback
+          _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
+          print('MatchedUsersCallPage: Using fallback UID: $_assignedUid');
+        }
+      } else {
+        print('MatchedUsersCallPage: Call not found in database, using fallback UID');
+        _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
+      }
+    } catch (e) {
+      print('MatchedUsersCallPage: Error fetching UID: $e');
+      // Use fallback UID
+      _assignedUid = DateTime.now().millisecondsSinceEpoch % 100000;
+      print('MatchedUsersCallPage: Using fallback UID after error: $_assignedUid');
+    }
+  }
+
+  Future<void> _checkIfCallAlreadyAccepted() async {
+    try {
+      print('MatchedUsersCallPage: Checking if call ${widget.callId} is already accepted');
+      final supabaseClient = SupabaseClient.instance.client;
+      
+      // Fetch current call status from database
+      final callResponse = await supabaseClient
+          .from('calls')
+          .select('status')
+          .eq('id', widget.callId)
+          .maybeSingle();
+      
+      if (callResponse != null && callResponse['status'] == 'accepted') {
+        print('MatchedUsersCallPage: Call is already accepted, starting call for initiator');
+        setState(() {
+          _callStatus = 'accepted';
+        });
+        await _startCall();
+      } else {
+        print('MatchedUsersCallPage: Call not yet accepted, waiting for acceptance');
+      }
+    } catch (e) {
+      print('MatchedUsersCallPage: Error checking call status: $e');
+    }
   }
 
   void _handleCallDeclined() {
@@ -343,8 +424,8 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
     if (mounted) {
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const HomePage()),
-        (_) => false,
+        MaterialPageRoute(builder: (_) => const CallPage()),
+        (route) => route.settings.name == '/home',
       );
     }
   }
@@ -611,6 +692,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage> with Ticker
               child: JoinChannelAudio(
                 channelID: widget.channelName,
                 callId: widget.callId,
+                uid: _assignedUid,
               ),
             ),
             
