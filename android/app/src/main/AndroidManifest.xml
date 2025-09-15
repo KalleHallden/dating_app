@@ -15,7 +15,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" android:maxSdkVersion="30" />
     
     <application
-        android:label="amplify_app"
+        android:label="Kora"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

@@ -1,8 +1,8 @@
 import 'dart:io';
-import 'package:amplify_app/widgets/signout_button.dart';
-import 'package:amplify_app/widgets/profile_picture_picker.dart';
-import 'package:amplify_app/widgets/location_picker.dart';
-import 'package:amplify_app/models/UserLocation.dart';
+import 'package:kora/widgets/signout_button.dart';
+import 'package:kora/widgets/profile_picture_picker.dart';
+import 'package:kora/widgets/location_picker.dart';
+import 'package:kora/models/UserLocation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;

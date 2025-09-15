@@ -5,8 +5,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
-import 'package:amplify_app/pages/home_page.dart';
-import 'package:amplify_app/pages/join_call_page.dart';
+import 'package:kora/pages/home_page.dart';
+import 'package:kora/pages/join_call_page.dart';
 import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';

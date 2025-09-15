@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:amplify_app/pages/call_page.dart';
+import 'package:kora/pages/call_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/signup_provider.dart';

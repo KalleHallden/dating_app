@@ -117,7 +117,7 @@ class _SplashScreenState extends State<SplashScreen>
                   child: FadeTransition(
                     opacity: _textFadeAnimation,
                     child: Text(
-                      'Welcome to ...',
+                      'Welcome to Kora',
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,

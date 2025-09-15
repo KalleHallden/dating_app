@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Amplify App</string>
+	<string>Kora</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>amplify_app</string>
+	<string>kora</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>This app needs access to microphone for voice calls with other users.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs camera access to take photos for your profile</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app uses the local network to connect voice calls between users.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
@@ -50,6 +52,6 @@
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
 	<key>LSApplicationCategoryType</key>
-	<string></string>
+	<string>public.app-category.social-networking</string>
 </dict>
 </plist>

@@ -1,4 +1,4 @@
-import 'package:amplify_app/pages/home_page.dart';
+import 'package:kora/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';

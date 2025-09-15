@@ -1,5 +1,5 @@
 // lib/pages/matches_page.dart
-import 'package:amplify_app/widgets/match_list_item.dart';
+import 'package:kora/widgets/match_list_item.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';

@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.amplify_app"
+    namespace = "com.hallden.kora"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,7 +21,7 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.amplify_app"
+        applicationId = "com.hallden.kora"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -30,11 +30,22 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        release {
+            // You'll need to create a keystore file and update these values
+            // Instructions provided in the publishing guide below
+            storeFile file('../keystore/kora-release.keystore')
+            storePassword System.getenv("KEYSTORE_PASSWORD") ?: ""
+            keyAlias System.getenv("KEY_ALIAS") ?: "kora"
+            keyPassword System.getenv("KEY_PASSWORD") ?: ""
+        }
+    }
+    
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.release
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }

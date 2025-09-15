@@ -1,4 +1,4 @@
-package com.example.amplify_app
+package com.hallden.kora
 
 import io.flutter.embedding.android.FlutterActivity
 

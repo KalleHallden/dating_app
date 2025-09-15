@@ -1,5 +1,5 @@
-name: amplify_app
-description: "A new Flutter project."
+name: kora
+description: "Kora - Connect with people through authentic voice conversations"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.0+3
 
 environment:
   sdk: ^3.6.1
@@ -34,17 +34,12 @@ dependencies:
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  amplify_flutter: ^2.6.0
-  amplify_auth_cognito: ^2.6.0
-  amplify_authenticator: ^2.3.2
   permission_handler: ^11.3.1
   agora_rtc_engine: ^6.5.0
-  amplify_api: ^2.6.0
   provider: ^6.1.2
   image_picker: ^1.1.2
   google_maps_flutter: ^2.12.0
   geocoding: ^3.0.0
-  amplify_storage_s3: ^2.6.1
   aws_signature_v4: ^0.6.4
   supabase_flutter: ^2.9.0
   flutter_dotenv: ^5.2.1

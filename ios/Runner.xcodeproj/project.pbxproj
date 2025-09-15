@@ -199,6 +199,7 @@
 				97C146EB1CF9000F007C117D /* Frameworks */,
 				97C146EC1CF9000F007C117D /* Resources */,
 				3B06AD1E1E4923F5004D2608 /* Thin Binary */,
+				487A8CA72E6ED8AA00ADDB67 /* Handle Agora dSYMs */,
 				9705A1C41CF9048500538489 /* Embed Frameworks */,
 				14DDA10B197D2714841BDC65 /* [CP] Embed Pods Frameworks */,
 				D2CC768D704AF0E12ACE73B9 /* [CP] Copy Pods Resources */,
@@ -328,6 +329,25 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
+		487A8CA72E6ED8AA00ADDB67 /* Handle Agora dSYMs */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/Runner.app",
+			);
+			name = "Handle Agora dSYMs";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/bash\n\n# Script to handle missing dSYM files for Agora frameworks\n# This script should be added as a \"Run Script\" build phase in Xcode\n\necho \"Handling Agora framework dSYM upload issues...\"\n\n# Set the path to the built products directory\nBUILT_PRODUCTS_DIR=\"${BUILT_PRODUCTS_DIR:-$1}\"\nDWARF_DSYM_FOLDER_PATH=\"${DWARF_DSYM_FOLDER_PATH:-$2}\"\n\nif [ -z \"$BUILT_PRODUCTS_DIR\" ] || [ -z \"$DWARF_DSYM_FOLDER_PATH\" ]; then\n    echo \"Usage: $0 <BUILT_PRODUCTS_DIR> <DWARF_DSYM_FOLDER_PATH>\"\n    echo \"Or run this script as part of Xcode build process\"\n    exit 0\nfi\n\n# List of Agora frameworks that may not have dSYM files\nAGORA_FRAMEWORKS=(\n    \"AgoraAiEchoCancellationExtension\"\n    \"AgoraAiEchoCancellationLLExtension\"  \n    \"AgoraAiNoiseSuppressionExtension\"\n    \"AgoraAiNoiseSuppressionLLExtension\"\n    \"AgoraAudioBeautyExtension\"\n    \"AgoraClearVisionExtension\"\n    \"AgoraContentInspectExtension\"\n    \"AgoraFaceCaptureExtension\"\n    \"AgoraFaceDetectionExtension\"\n    \"AgoraLipSyncExtension\"\n    \"AgoraReplayKitExtension\"\n    \"AgoraRtcKit\"\n    \"AgoraRtcWrapper\"\n    \"AgoraVideoEncoderExtension\"\n    \"AgoraVideoDecoderExtension\"\n    \"AgoraVideoSegmentationExtension\"\n    \"AgoraSpatialAudioExtension\"\n    \"Agoraffmpeg\"\n    \"Agorafdkaac\"\n    \"AgoraSoundTouch\"\n    \"AgoraVideoAv1DecoderExtension\"\n    \"AgoraVideoAv1EncoderExtension\"\n    \"AgoraVideoQualityAnalyzerExtension\"\n    \"video_enc\"\n    \"video_dec\"\n    \"aosl\"\n)\n\n# Create empty dSYM files for missing Agora frameworks\nfor framework in \"${AGORA_FRAMEWORKS[@]}\"; do\n    FRAMEWORK_PATH=\"$BUILT_PRODUCTS_DIR/$framework.framework\"\n    DSYM_PATH=\"$DWARF_DSYM_FOLDER_PATH/$framework.framework.dSYM\"\n    \n    if [ -d \"$FRAMEWORK_PATH\" ] && [ ! -d \"$DSYM_PATH\" ]; then\n        echo \"Creating placeholder dSYM for $framework\"\n        mkdir -p \"$DSYM_PATH/Contents/Resources/DWARF\"\n        \n        # Create Info.plist for dSYM\n        cat > \"$DSYM_PATH/Contents/Info.plist\" << EOF\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>CFBundleDevelopmentRegion</key>\n    <string>English</string>\n    <key>CFBundleIdentifier</key>\n    <string>com.apple.xcode.dsym.$framework</string>\n    <key>CFBundleInfoDictionaryVersion</key>\n    <string>6.0</string>\n    <key>CFBundlePackageType</key>\n    <string>dSYM</string>\n    <key>CFBundleShortVersionString</key>\n    <string>1.0</string>\n    <key>CFBundleVersion</key>\n    <string>1</string>\n</dict>\n</plist>\nEOF\n        \n        # Create empty DWARF file\n        touch \"$DSYM_PATH/Contents/Resources/DWARF/$framework\"\n    fi\ndone\n\necho \"dSYM handling complete.\"\n";
+		};
 		9740EEB61CF901F6004384FC /* Run Script */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -341,7 +361,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build";
+			shellScript = "/bin/sh \"$FLUTTER_ROOT/packages/flutter_tools/bin/xcode_backend.sh\" build\n";
 		};
 		D2CC768D704AF0E12ACE73B9 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -491,16 +511,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 76A9484TZ5;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
@@ -517,7 +538,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -535,7 +556,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
@@ -551,7 +572,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp.RunnerTests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
@@ -675,16 +696,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 76A9484TZ5;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -699,16 +721,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 76A9484TZ5;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.social-networking";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.example.amplifyApp;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hallden.kora;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

@@ -1,4 +1,4 @@
-import 'package:amplify_app/pages/call_page.dart';
+import 'package:kora/pages/call_page.dart';
 import 'package:flutter/material.dart';
 
 class TalkPage extends StatelessWidget {
