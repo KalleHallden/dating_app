@@ -2,7 +2,7 @@ import 'package:kora/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
-import 'package:uni_links/uni_links.dart'; // Import uni_links
+import 'package:app_links/app_links.dart'; // Import app_links
 
 import 'pages/auth_screen.dart';
 import 'pages/signup_screen.dart';
@@ -142,16 +142,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   // Deep link listener function
   void _setupDeepLinkListener() {
+    final appLinks = AppLinks();
+
     // Listen for incoming links when the app is already open
-    linkStream.listen((String? uri) {
-      _handleDeepLink(uri);
+    appLinks.uriLinkStream.listen((Uri uri) {
+      _handleDeepLink(uri.toString());
     }, onError: (err) {
       print('Error receiving deep link: $err');
     });
 
     // Get the initial link if the app was launched by a deep link
-    getInitialLink().then((String? uri) {
-      _handleDeepLink(uri);
+    appLinks.getInitialLink().then((Uri? uri) {
+      if (uri != null) {
+        _handleDeepLink(uri.toString());
+      }
     });
   }
 

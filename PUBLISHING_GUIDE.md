@@ -4,7 +4,7 @@
 
 ### ✅ App Configuration (COMPLETED)
 - [x] App name: "Kora"
-- [x] Bundle ID: `com.hallden.kora`
+- [x] Bundle ID: `com.kora.app`
 - [x] Version: 1.0.0+1
 - [x] Category: Social Networking
 - [x] Permissions configured
@@ -14,8 +14,8 @@
 ## 🍎 Apple App Store Requirements
 
 ### 1. Apple Developer Account
-- [ ] Apple Developer Program membership ($99/year)
-- [ ] App Store Connect access
+- [x] Apple Developer Program membership ($99/year)
+- [x] App Store Connect access
 
 ### 2. App Store Assets
 Create these in your design tool:

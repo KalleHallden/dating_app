@@ -1,0 +1,2 @@
+/Users/kallehallden/Projects/dating_app/android/app/.cxx/RelWithDebInfo/3j1l2f6e/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/kallehallden/Projects/dating_app/android/app/.cxx/RelWithDebInfo/3j1l2f6e/armeabi-v7a/CMakeFiles/rebuild_cache.dir

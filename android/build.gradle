@@ -11,7 +11,17 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
+    project.configurations.all {
+        resolutionStrategy.eachDependency { details ->
+            if (details.requested.group == 'com.android.tools.build' &&
+                details.requested.name == 'gradle' &&
+                details.requested.version == '7.1.2') {
+                details.useVersion '7.3.0'
+            }
+        }
+    }
 }
+
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir

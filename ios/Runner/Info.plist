@@ -30,6 +30,10 @@
 	<string>This app needs access to microphone for voice calls with other users.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>This app needs camera access to take photos for your profile</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>This app uses your location to find and match you with other users nearby.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>This app uses your location to find and match you with other users nearby.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>This app uses the local network to connect voice calls between users.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>

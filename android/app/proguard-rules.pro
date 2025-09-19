@@ -28,3 +28,8 @@
 -dontwarn javax.annotation.**
 -dontwarn javax.annotation.concurrent.**
 -dontwarn sun.misc.Unsafe
+
+# Play Core library rules - these are referenced but not used in release builds
+-dontwarn com.google.android.play.core.splitcompat.SplitCompatApplication
+-dontwarn com.google.android.play.core.splitinstall.**
+-dontwarn com.google.android.play.core.tasks.**
