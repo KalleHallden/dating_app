@@ -121,12 +121,15 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
       if (mounted) {
         final user = response.user!;
+
+        // Check if user has completed profile data
         final userData = await client
             .from('users')
             .select()
             .eq('user_id', user.id)
             .maybeSingle();
 
+        // Determine navigation based on user profile completeness and sign-in type
         if (userData == null ||
             userData['name'] == null ||
             userData['age'] == null ||
@@ -134,17 +137,24 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
             userData['gender_preference'] == null ||
             userData['location'] == null ||
             userData['about_me'] == null) {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const SignupScreen()),
-            (route) => false,
-          );
+
+          // New user or incomplete profile - go to signup
+          if (mounted) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => const SignupScreen()),
+              (route) => false,
+            );
+          }
         } else {
-          Navigator.pushAndRemoveUntil(
-            context,
-            MaterialPageRoute(builder: (context) => const HomePage()),
-            (route) => false,
-          );
+          // Existing user with complete profile - go to home
+          if (mounted) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(builder: (context) => const HomePage()),
+              (route) => false,
+            );
+          }
         }
       }
     } on supabase.AuthException catch (e) {

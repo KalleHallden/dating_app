@@ -1,7 +1,7 @@
 // lib/widgets/signout_button.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
-import '../pages/auth_screen.dart';
+import '../pages/welcome_screen.dart';
 import '../services/supabase_client.dart';
 
 class SignoutButton extends StatefulWidget {
@@ -69,15 +69,13 @@ class _SignoutButtonState extends State<SignoutButton> {
       
       print('SignOut successful. Session: ${currentSession == null ? "null" : "exists"}, User: ${currentUser == null ? "null" : "exists"}');
       
-      // Navigate to AuthScreen and clear the entire navigation stack
+      // Navigate to WelcomeScreen and clear the entire navigation stack
       if (mounted) {
         // Use pushAndRemoveUntil to ensure we clear the entire navigation stack
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
-            builder: (_) => const AuthScreen(
-              initialMessage: 'Successfully signed out. Please sign in again.',
-            ),
+            builder: (_) => const WelcomeScreen(),
           ),
           (route) => false, // This removes ALL previous routes
         );
@@ -96,13 +94,11 @@ class _SignoutButtonState extends State<SignoutButton> {
           ),
         );
         
-        // Still navigate to auth screen even on error
+        // Still navigate to welcome screen even on error
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(
-            builder: (_) => const AuthScreen(
-              initialMessage: 'Session error. Please sign in.',
-            ),
+            builder: (_) => const WelcomeScreen(),
           ),
           (route) => false,
         );
