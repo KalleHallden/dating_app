@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:image_picker/image_picker.dart';
 import '../services/supabase_client.dart';
 import '../services/image_compression.dart';
 import '../models/UserLocation.dart';
@@ -9,12 +10,74 @@ class SignupProvider with ChangeNotifier {
   int _currentStep = 1;
   Map<String, dynamic> userData = {};
 
+  // Step 1 data
+  String? _name;
+  DateTime? _birthdate;
+  XFile? _profileImage;
+
+  // Step 2 data
+  String? _gender;
+  String? _interestedIn;
+  UserLocation? _location;
+
+  // Step 3 data
+  String? _aboutMe;
+
   int get currentStep => _currentStep;
   supabase.SupabaseClient get supabaseClient => SupabaseClient.instance.client;
+
+  // Getters for form data
+  String? get name => _name;
+  DateTime? get birthdate => _birthdate;
+  XFile? get profileImage => _profileImage;
+  String? get gender => _gender;
+  String? get interestedIn => _interestedIn;
+  UserLocation? get location => _location;
+  String? get aboutMe => _aboutMe;
 
   set currentStep(int value) {
     _currentStep = value;
     notifyListeners();
+  }
+
+  // Individual setters for maintaining state
+  void setStep1Data(String name, DateTime birthdate, XFile image) {
+    _name = name;
+    _birthdate = birthdate;
+    _profileImage = image;
+    userData.addAll({
+      'name': name,
+      'age': _calculateAge(birthdate),
+      'profile_picture': image.path,
+    });
+    notifyListeners();
+  }
+
+  void setStep2Data(String gender, String interestedIn, UserLocation location) {
+    _gender = gender;
+    _interestedIn = interestedIn;
+    _location = location;
+    userData.addAll({
+      'gender': gender,
+      'gender_preference': interestedIn,
+      'location': location,
+    });
+    notifyListeners();
+  }
+
+  void setStep3Data(String aboutMe) {
+    _aboutMe = aboutMe;
+    userData.addAll({'aboutMe': aboutMe});
+    notifyListeners();
+  }
+
+  int _calculateAge(DateTime birthdate) {
+    final now = DateTime.now();
+    int age = now.year - birthdate.year;
+    if (now.month < birthdate.month || (now.month == birthdate.month && now.day < birthdate.day)) {
+      age--;
+    }
+    return age;
   }
 
   void addData(Map<String, dynamic> data) {

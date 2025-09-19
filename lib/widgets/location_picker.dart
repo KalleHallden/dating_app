@@ -29,9 +29,14 @@ class _LocationPickerState extends State<LocationPicker> {
     // Use initial location if provided, otherwise default to New York
     if (widget.initialLocation != null) {
       _selectedPosition = LatLng(widget.initialLocation!.lat, widget.initialLocation!.long);
+      _cityName = widget.initialLocation!.cityName;
     } else {
       _selectedPosition = const LatLng(40.7128, -74.0060); // Default: New York
     }
+    // Get initial city name
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _getCityName();
+    });
   }
 
   Future<void> _searchLocation() async {
@@ -64,8 +69,39 @@ class _LocationPickerState extends State<LocationPicker> {
 
   void _onCameraIdle() {
     // This is called when the camera stops moving
-    // You could add additional logic here if needed
-    print('Camera stopped at: ${_selectedPosition.latitude}, ${_selectedPosition.longitude}');
+    // Update city name when camera stops
+    _getCityName();
+  }
+
+  String? _cityName;
+  bool _isGettingCityName = false;
+
+  Future<void> _getCityName() async {
+    if (_isGettingCityName) return;
+
+    setState(() {
+      _isGettingCityName = true;
+    });
+
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        _selectedPosition.latitude,
+        _selectedPosition.longitude,
+      );
+
+      if (placemarks.isNotEmpty) {
+        final placemark = placemarks.first;
+        setState(() {
+          _cityName = placemark.locality ?? placemark.subAdministrativeArea ?? placemark.administrativeArea;
+        });
+      }
+    } catch (e) {
+      // Silently fail - city name is optional
+    } finally {
+      setState(() {
+        _isGettingCityName = false;
+      });
+    }
   }
 
   @override
@@ -198,14 +234,29 @@ class _LocationPickerState extends State<LocationPicker> {
                     Icon(Icons.location_on, color: Colors.grey[600], size: 20),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: Text(
-                        'Lat: ${_selectedPosition.latitude.toStringAsFixed(6)}, '
-                        'Lng: ${_selectedPosition.longitude.toStringAsFixed(6)}',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey[700],
-                        ),
-                      ),
+                      child: _isGettingCityName
+                          ? Row(
+                              children: [
+                                SizedBox(
+                                  width: 12,
+                                  height: 12,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 1.5,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.grey[600]!),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                const Text('Getting location...'),
+                              ],
+                            )
+                          : Text(
+                              _cityName ?? 'Unknown location',
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: Colors.grey[700],
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                     ),
                   ],
                 ),
@@ -222,11 +273,12 @@ class _LocationPickerState extends State<LocationPicker> {
                 final selectedLocation = UserLocation(
                   lat: _selectedPosition.latitude,
                   long: _selectedPosition.longitude,
+                  cityName: _cityName,
                 );
-                
+
                 // Call the callback if provided (for backward compatibility)
                 widget.onLocationSelected?.call(selectedLocation);
-                
+
                 // Return the location via Navigator.pop
                 Navigator.pop(context, selectedLocation);
               },

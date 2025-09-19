@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:kora/pages/call_page.dart';
+import 'package:kora/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/signup_provider.dart';
@@ -30,7 +31,7 @@ class _SignupScreenState extends State<SignupScreen> {
       await provider.saveUser();
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => const CallPage()),
+        MaterialPageRoute(builder: (context) => const HomePage()),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -44,7 +45,31 @@ class _SignupScreenState extends State<SignupScreen> {
     final signupProvider = Provider.of<SignupProvider>(context);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Sign Up')),
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        leading: signupProvider.currentStep > 1
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.black),
+                onPressed: () {
+                  _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                },
+              )
+            : null,
+        title: Text(
+          'Step ${signupProvider.currentStep} of 3',
+          style: const TextStyle(
+            color: Colors.black,
+            fontSize: 18,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        centerTitle: true,
+      ),
       body: Stack(
         children: [
           PageView(
@@ -53,11 +78,7 @@ class _SignupScreenState extends State<SignupScreen> {
             children: [
               SignupStep1(
                 onDataCollected: (name, age, image) {
-                  signupProvider.addData({
-                    'name': name,
-                    'age': age,
-                    'profile_picture': image.path,
-                  });
+                  signupProvider.setStep1Data(name, DateTime.now().subtract(Duration(days: age * 365)), image);
                   _pageController.nextPage(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
@@ -65,12 +86,8 @@ class _SignupScreenState extends State<SignupScreen> {
                 },
               ),
               SignupStep2(
-                onDataCollected: (gender, genderPreference, location) {
-                  signupProvider.addData({
-                    'gender': gender,
-                    'gender_preference': genderPreference,
-                    'location': location,
-                  });
+                onDataCollected: (gender, interestedIn, location) {
+                  signupProvider.setStep2Data(gender, interestedIn, location);
                   _pageController.nextPage(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,
@@ -79,7 +96,7 @@ class _SignupScreenState extends State<SignupScreen> {
               ),
               SignupStep3(
                 onDataCollected: (aboutMe) {
-                  signupProvider.addData({'aboutMe': aboutMe});
+                  signupProvider.setStep3Data(aboutMe);
                   _handleSave(signupProvider);
                 },
               ),
@@ -90,25 +107,6 @@ class _SignupScreenState extends State<SignupScreen> {
             right: 16,
             bottom: 16,
             child: CustomProgressBar(currentStep: signupProvider.currentStep),
-          ),
-          Positioned(
-            bottom: 60,
-            right: 16,
-            child: Row(
-              children: [
-                if (signupProvider.currentStep > 1)
-                  ElevatedButton(
-                    onPressed: () {
-                      _pageController.previousPage(
-                        duration: const Duration(milliseconds: 300),
-                        curve: Curves.easeInOut,
-                      );
-                    },
-                    child: const Text('Back'),
-                  ),
-                if (signupProvider.currentStep < 3) const SizedBox(width: 16),
-              ],
-            ),
           ),
         ],
       ),

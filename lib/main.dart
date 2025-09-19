@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
 import 'package:app_links/app_links.dart'; // Import app_links
 
-import 'pages/auth_screen.dart';
+import 'pages/welcome_screen.dart';
 import 'pages/signup_screen.dart';
 import 'pages/call_page.dart';
 import 'pages/splash_screen.dart';
@@ -195,17 +195,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     // Case 1: No session or user found - definitely need to authenticate
     if (currentSession == null || currentUser == null) {
-      print('DEBUG: No session or user. Navigating to AuthScreen.');
-      return const AuthScreen();
+      print('DEBUG: No session or user. Navigating to WelcomeScreen.');
+      return const WelcomeScreen();
     }
 
-    // Case 2: User exists but email is not confirmed
-    if (currentUser.emailConfirmedAt == null) {
-      print('DEBUG: User email not confirmed. Navigating to AuthScreen.');
-      return const AuthScreen(
-          initialMessage:
-              'Please check your email to confirm your account. Then sign in.');
-    }
+    // Case 2: User exists but phone is not confirmed (for phone auth)
+    // Note: For phone auth, we don't need to check emailConfirmedAt
+    // The user is automatically verified when they enter the OTP
 
     // Case 3: User exists, email confirmed. Now check user profile data.
     final userId = currentUser.id;
@@ -298,12 +294,10 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                       );
                     }
                     if (snapshot.hasError) {
-                      return AuthScreen(
-                        initialMessage: 'Error: ${snapshot.error}',
-                      );
+                      return WelcomeScreen();
                     }
 
-                    return snapshot.data ?? const AuthScreen();
+                    return snapshot.data ?? const WelcomeScreen();
                   },
                 ),
     );
