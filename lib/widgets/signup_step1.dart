@@ -6,7 +6,7 @@ import '../services/image_compression.dart';
 import '../providers/signup_provider.dart';
 
 class SignupStep1 extends StatefulWidget {
-  final Function(String name, int age, XFile image) onDataCollected;
+  final Function(String name, DateTime birthdate, XFile image) onDataCollected;
 
   const SignupStep1({required this.onDataCollected, super.key});
 
@@ -306,7 +306,7 @@ class _SignupStep1State extends State<SignupStep1> {
                           _image != null) {
                         widget.onDataCollected(
                           _nameController.text,
-                          _calculateAge(_birthdate!),
+                          _birthdate!,
                           _image!,
                         );
                       } else {

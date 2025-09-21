@@ -632,6 +632,20 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     safePrint('joinMatchmaking request sent from Flutter.');
   }
 
+  void _leaveMatchmaking() {
+    if (_isCallActive || _isLeavingCall) return;
+
+    safePrint('Attempting to send leaveMatchmaking request from Flutter...');
+    _sendSupabaseFunctionAction(
+      'leaveMatchmaking',
+      data: {
+        'timestamp': DateTime.now().toIso8601String(),
+        'connectionId': _supabaseClient.auth.currentUser!.id,
+      },
+    );
+    safePrint('leaveMatchmaking request sent from Flutter.');
+  }
+
   Future<void> _leaveCall(
       {bool shouldReturnHome = true, String reason = 'manual'}) async {
     // Store context for navigation handling in leftCall response
@@ -763,6 +777,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       return Scaffold(
         appBar: AppBar(
           leading: BackButton(onPressed: () {
+            // Clean up matchmaking state before leaving
+            _leaveMatchmaking();
             Navigator.pushAndRemoveUntil(
               context,
               MaterialPageRoute(builder: (_) => const HomePage()),

@@ -132,7 +132,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         // Determine navigation based on user profile completeness and sign-in type
         if (userData == null ||
             userData['name'] == null ||
-            userData['age'] == null ||
+            userData['date_of_birth'] == null ||
             userData['gender'] == null ||
             userData['gender_preference'] == null ||
             userData['location'] == null ||

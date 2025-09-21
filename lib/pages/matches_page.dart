@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 import '../widgets/call_restriction_button.dart';
+import '../utils/age_calculator.dart';
 import 'view_profile_page.dart';
 import 'waiting_call_page.dart';
 
@@ -78,13 +79,18 @@ class _MatchesPageState extends State<MatchesPage> {
               .eq('user_id', otherUserId)
               .single();
           
+          // Calculate age from date of birth
+          final dateOfBirthValue = userResponse['date_of_birth'];
+          final birthDate = AgeCalculator.parseBirthDate(dateOfBirthValue);
+          final age = birthDate != null ? AgeCalculator.calculateAge(birthDate) : 0;
+
           processedMatches.add({
             'match_id': match['id'],
             'created_at': match['created_at'],
             'last_message_at': match['last_message_at'],
             'user_id': userResponse['user_id'],
             'name': userResponse['name'] ?? 'Unknown',
-            'age': userResponse['age'] ?? 0,
+            'age': age,
             'profile_picture_url': userResponse['profile_picture_url'] ?? userResponse['profile_picture'],
             'is_online': userResponse['online'] ?? false,
             'is_available': userResponse['is_available'] ?? false,
@@ -161,7 +167,15 @@ class _MatchesPageState extends State<MatchesPage> {
                   if (match['user_id'] == userId) {
                     // Update the match data with new user info
                     match['name'] = updatedUser['name'] ?? match['name'];
-                    match['age'] = updatedUser['age'] ?? match['age'];
+
+                    // Calculate age from date of birth if available
+                    if (updatedUser['date_of_birth'] != null) {
+                      final birthDate = AgeCalculator.parseBirthDate(updatedUser['date_of_birth']);
+                      if (birthDate != null) {
+                        match['age'] = AgeCalculator.calculateAge(birthDate);
+                      }
+                    }
+
                     match['is_online'] = updatedUser['online'] ?? false;
                     match['is_available'] = updatedUser['is_available'] ?? false;
                     

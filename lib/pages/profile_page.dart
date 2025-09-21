@@ -8,6 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 import '../services/location_service.dart';
+import '../utils/age_calculator.dart';
+import '../utils/gender_preference_converter.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({Key? key}) : super(key: key);
@@ -179,7 +181,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _nameController.text = _userData!['name'] ?? '';
     _aboutMeController.text = _userData!['about_me'] ?? '';
     _editGender = _userData!['gender'];
-    _editGenderPreference = _userData!['gender_preference'];
+    // Convert gender preference from backend format to frontend format for editing
+    _editGenderPreference = GenderPreferenceConverter.backendToFrontend(_userData!['gender_preference']);
     
     // Parse age preference
     final agePref = _userData!['age_preference'];
@@ -240,7 +243,8 @@ class _ProfilePageState extends State<ProfilePage> {
         'name': _nameController.text.trim(),
         'about_me': _aboutMeController.text.trim(),
         'gender': _editGender,
-        'gender_preference': _editGenderPreference,
+        // Convert gender preference from frontend format back to backend format
+        'gender_preference': GenderPreferenceConverter.frontendToBackend(_editGenderPreference),
         'age_preference': {
           'min': _editMinAge,
           'max': _editMaxAge,
@@ -615,7 +619,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _buildProfileInfo() {
     final name = _userData?['name'] ?? 'Unknown';
-    final age = _userData?['age'] ?? 0;
+    // Calculate age from date of birth
+    final dateOfBirthValue = _userData?['date_of_birth'];
+    final birthDate = AgeCalculator.parseBirthDate(dateOfBirthValue);
+    final age = birthDate != null ? AgeCalculator.calculateAge(birthDate) : 0;
     final aboutMe = _userData?['about_me'] ?? 'No description provided';
 
     return Padding(
@@ -779,7 +786,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                       ),
-                      items: ['Man', 'Woman', 'Man or Woman', 'Other']
+                      items: GenderPreferenceConverter.getFrontendOptions()
                           .map((p) => DropdownMenuItem(value: p, child: Text(p)))
                           .toList(),
                       onChanged: (value) => setState(() => _editGenderPreference = value),
@@ -926,7 +933,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   String _formatPreferences() {
     final gender = _userData?['gender'] ?? 'Not specified';
-    final genderPref = _userData?['gender_preference'] ?? 'Not specified';
+    // Convert gender preference from backend format to frontend format for display
+    final genderPref = GenderPreferenceConverter.backendToFrontend(_userData?['gender_preference']);
     final agePref = _userData?['age_preference'];
     
     String prefString = 'Looking for: $genderPref';

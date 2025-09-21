@@ -77,8 +77,8 @@ class _SignupScreenState extends State<SignupScreen> {
             onPageChanged: (index) => signupProvider.currentStep = index + 1,
             children: [
               SignupStep1(
-                onDataCollected: (name, age, image) {
-                  signupProvider.setStep1Data(name, DateTime.now().subtract(Duration(days: age * 365)), image);
+                onDataCollected: (name, birthdate, image) {
+                  signupProvider.setStep1Data(name, birthdate, image);
                   _pageController.nextPage(
                     duration: const Duration(milliseconds: 300),
                     curve: Curves.easeInOut,

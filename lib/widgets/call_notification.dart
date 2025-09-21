@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/call_notification_service.dart';
+import '../utils/age_calculator.dart';
 import '../pages/waiting_call_page.dart';
 import '../pages/matched_users_call_page.dart';
 
@@ -83,11 +84,16 @@ class _CallNotificationOverlayState extends State<CallNotificationOverlay> with 
     final callId = callData['id'] as String;
     final channelName = callData['channel_name'] as String;
     
+    // Calculate age from date of birth
+    final dateOfBirthValue = callerInfo['date_of_birth'];
+    final birthDate = AgeCalculator.parseBirthDate(dateOfBirthValue);
+    final age = birthDate != null ? AgeCalculator.calculateAge(birthDate) : 0;
+
     // Create a proper matched user map with all required fields
     final matchedUser = <String, dynamic>{
       'user_id': callerInfo['user_id'] ?? '',
       'name': callerInfo['name'] ?? 'Unknown',
-      'age': callerInfo['age'] ?? 0,
+      'age': age,
       'profile_picture_url': callerInfo['profile_picture_url'] ?? callerInfo['profile_picture'] ?? '',
       'is_online': callerInfo['online'] ?? false,
       'is_available': callerInfo['is_available'] ?? false,

@@ -4,6 +4,8 @@ import 'package:image_picker/image_picker.dart';
 import '../services/supabase_client.dart';
 import '../services/image_compression.dart';
 import '../models/UserLocation.dart';
+import '../utils/age_calculator.dart';
+import '../utils/gender_preference_converter.dart';
 import 'dart:io';
 
 class SignupProvider with ChangeNotifier {
@@ -31,6 +33,7 @@ class SignupProvider with ChangeNotifier {
   DateTime? get birthdate => _birthdate;
   XFile? get profileImage => _profileImage;
   String? get gender => _gender;
+  // Return frontend format for UI display
   String? get interestedIn => _interestedIn;
   UserLocation? get location => _location;
   String? get aboutMe => _aboutMe;
@@ -47,7 +50,7 @@ class SignupProvider with ChangeNotifier {
     _profileImage = image;
     userData.addAll({
       'name': name,
-      'age': _calculateAge(birthdate),
+      'date_of_birth': AgeCalculator.formatBirthDate(birthdate),
       'profile_picture': image.path,
     });
     notifyListeners();
@@ -59,7 +62,8 @@ class SignupProvider with ChangeNotifier {
     _location = location;
     userData.addAll({
       'gender': gender,
-      'gender_preference': interestedIn,
+      // Convert frontend format to backend format for storage
+      'gender_preference': GenderPreferenceConverter.frontendToBackend(interestedIn),
       'location': location,
     });
     notifyListeners();
@@ -71,14 +75,6 @@ class SignupProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  int _calculateAge(DateTime birthdate) {
-    final now = DateTime.now();
-    int age = now.year - birthdate.year;
-    if (now.month < birthdate.month || (now.month == birthdate.month && now.day < birthdate.day)) {
-      age--;
-    }
-    return age;
-  }
 
   void addData(Map<String, dynamic> data) {
     userData.addAll(data);
@@ -179,7 +175,7 @@ class SignupProvider with ChangeNotifier {
       final Map<String, dynamic> dataToInsert = {
         'user_id': userId,
         'name': userData['name'] as String,
-        'age': userData['age'] as int,
+        'date_of_birth': userData['date_of_birth'] as String,
         'gender': userData['gender'] as String,
         'gender_preference': userData['gender_preference'] as String,
         'location': '(${location.lat},${location.long})',

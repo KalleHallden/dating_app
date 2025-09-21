@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 import '../services/location_service.dart';
+import '../utils/age_calculator.dart';
 
 class ViewProfilePage extends StatefulWidget {
   final String userId;
@@ -147,7 +148,10 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
 
   Widget _buildProfileInfo() {
     final name = _userData?['name'] ?? 'Unknown';
-    final age = _userData?['age'] ?? 0;
+    // Calculate age from date of birth
+    final dateOfBirthValue = _userData?['date_of_birth'];
+    final birthDate = AgeCalculator.parseBirthDate(dateOfBirthValue);
+    final age = birthDate != null ? AgeCalculator.calculateAge(birthDate) : 0;
     final aboutMe = _userData?['about_me'] ?? 'No description provided';
     final isOnline = _userData?['online'] ?? false;
 
@@ -267,12 +271,11 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Press it by mistake did you?'),
-        //content: Text('Do you really want to unmatch with ${_userData?['name'] ?? 'this person'}?'),
+        title: const Text('Are you sure?'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text('yes I did'),
+            child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () async {
@@ -280,7 +283,7 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
               await _unmatchUser();
             },
             style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text('no un-match me!'),
+            child: const Text('Yes I\'m sure'),
           ),
         ],
       ),
