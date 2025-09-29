@@ -35,10 +35,27 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   int _resendCooldown = 0;
   Timer? _resendTimer;
 
+  // Add a controller for the hidden text field that will capture the full OTP
+  final TextEditingController _hiddenController = TextEditingController();
+  final FocusNode _hiddenFocusNode = FocusNode();
+
   @override
   void initState() {
     super.initState();
     _startResendCooldown();
+
+    // Set up listener for hidden field to detect automatic OTP input
+    _hiddenController.addListener(() {
+      final value = _hiddenController.text;
+      if (value.length >= 6) {
+        _handlePastedOTP(value);
+      }
+    });
+
+    // Focus the first field initially
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focusNodes[0].requestFocus();
+    });
   }
 
   @override
@@ -49,6 +66,8 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
     for (var node in _focusNodes) {
       node.dispose();
     }
+    _hiddenController.dispose();
+    _hiddenFocusNode.dispose();
     _resendTimer?.cancel();
     super.dispose();
   }
@@ -74,6 +93,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   }
 
   void _onDigitChanged(String value, int index) {
+    // Handle pasted OTP code (when user pastes the full code into one field)
+    if (value.length > 1) {
+      _handlePastedOTP(value);
+      return;
+    }
+
     if (value.isNotEmpty) {
       if (index < 5) {
         _focusNodes[index + 1].requestFocus();
@@ -83,6 +108,39 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           _verifyOTP();
         }
       }
+    }
+  }
+
+  void _handlePastedOTP(String pastedValue) {
+    // Extract only digits from pasted value
+    final digits = pastedValue.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (digits.length >= 6) {
+      // Populate all 6 fields with the digits
+      for (int i = 0; i < 6; i++) {
+        _controllers[i].text = digits[i];
+      }
+
+      // Unfocus all fields and verify automatically
+      for (var node in _focusNodes) {
+        node.unfocus();
+      }
+
+      // Auto-verify if we have 6 digits
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (_otpCode.length == 6) {
+          _verifyOTP();
+        }
+      });
+    }
+  }
+
+  void _handleHiddenFieldChange(String value) {
+    // This handles the automatic OTP detection from iOS
+    final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (digits.length >= 6) {
+      _handlePastedOTP(digits);
     }
   }
 
@@ -240,12 +298,41 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           onPressed: () => Navigator.pop(context),
         ),
       ),
+      resizeToAvoidBottomInset: true, // Handle keyboard properly
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+        child: SingleChildScrollView( // Add scroll view to handle keyboard overflow
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height -
+                     MediaQuery.of(context).padding.top -
+                     AppBar().preferredSize.height - 48, // Subtract padding
+              child: Stack(
+                children: [
+                  // Hidden text field for automatic OTP detection
+                  Positioned(
+                    left: -1000, // Position off-screen
+                    child: SizedBox(
+                      width: 1,
+                      height: 1,
+                      child: TextField(
+                        controller: _hiddenController,
+                        focusNode: _hiddenFocusNode,
+                        keyboardType: TextInputType.number,
+                        autofillHints: const [AutofillHints.oneTimeCode],
+                        onChanged: _handleHiddenFieldChange,
+                        style: const TextStyle(color: Colors.transparent),
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          counterText: '',
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Main content
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
               const Text(
                 'Enter verification code',
                 style: TextStyle(
@@ -281,8 +368,9 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                       focusNode: _focusNodes[index],
                       textAlign: TextAlign.center,
                       keyboardType: TextInputType.number,
-                      maxLength: 1,
+                      maxLength: 6, // Allow up to 6 characters for paste handling
                       enabled: !_isLoading,
+                      autofillHints: index == 0 ? const [AutofillHints.oneTimeCode] : null,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -320,6 +408,15 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                           _onDigitChanged(value, index);
                         } else {
                           _handleBackspace(value, index);
+                        }
+                      },
+                      onTap: () {
+                        // Focus the hidden field to trigger iOS autofill
+                        if (index == 0) {
+                          _hiddenFocusNode.requestFocus();
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            _focusNodes[0].requestFocus();
+                          });
                         }
                       },
                     ),
@@ -381,7 +478,11 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-            ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),

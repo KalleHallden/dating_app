@@ -12,6 +12,7 @@ import 'providers/signup_provider.dart';
 import 'services/supabase_client.dart';
 import 'services/online_status_service.dart';
 import 'services/call_notification_service.dart';
+import 'services/ban_detection_service.dart';
 import 'widgets/call_notification.dart';
 
 // Global navigator key
@@ -75,9 +76,40 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         OnlineStatusService().initialize();
         // Re-initialize call notification service for new user
         CallNotificationService().reinitialize();
+        // Initialize ban detection service
+        BanDetectionService().initialize(onBanned: () {
+          // Show banned message and navigate to welcome screen when user gets banned
+          if (navigatorKey.currentContext != null) {
+            // Show the ban message
+            ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+              const SnackBar(
+                content: Text('Your account has been suspended due to multiple reports. Please contact support if you believe this is an error.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 6),
+              ),
+            );
+
+            // Navigate to welcome screen (login screen)
+            Navigator.of(navigatorKey.currentContext!).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+              (route) => false,
+            );
+          }
+        });
       } else if (event == supabase.AuthChangeEvent.signedOut) {
         OnlineStatusService().dispose();
+        BanDetectionService().dispose();
         // No need to dispose CallNotificationService - it handles auth changes internally
+
+        // Force navigation to welcome screen on sign out
+        if (mounted && navigatorKey.currentContext != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Navigator.of(navigatorKey.currentContext!).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+              (route) => false,
+            );
+          });
+        }
       }
 
       if (mounted) {
@@ -97,10 +129,29 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Set up deep link listener for Supabase
     _setupDeepLinkListener();
 
-    // Initialize online status service if user is authenticated
+    // Initialize services if user is authenticated
     final session = SupabaseClient.instance.client.auth.currentSession;
     if (session != null) {
       OnlineStatusService().initialize();
+      BanDetectionService().initialize(onBanned: () {
+        // Show banned message and navigate to welcome screen when user gets banned
+        if (navigatorKey.currentContext != null) {
+          // Show the ban message
+          ScaffoldMessenger.of(navigatorKey.currentContext!).showSnackBar(
+            const SnackBar(
+              content: Text('Your account has been suspended due to multiple reports. Please contact support if you believe this is an error.'),
+              backgroundColor: Colors.red,
+              duration: Duration(seconds: 6),
+            ),
+          );
+
+          // Navigate to welcome screen (login screen)
+          Navigator.of(navigatorKey.currentContext!).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+            (route) => false,
+          );
+        }
+      });
     }
   }
 
@@ -159,6 +210,23 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     });
   }
 
+  // Function to handle banned users
+  Future<void> _handleBannedUser() async {
+    try {
+      // Clear any local state
+      OnlineStatusService().dispose();
+      BanDetectionService().dispose();
+
+      // Sign out the user
+      await SupabaseClient.instance.client.auth.signOut();
+
+      // Don't navigate here, let the auth state change handle it
+      // The signOut above will trigger the auth state listener which will rebuild the app
+    } catch (e) {
+      print('Error handling banned user: $e');
+    }
+  }
+
   // Function to process the deep link
   Future<void> _handleDeepLink(String? uri) async {
     if (uri != null) {
@@ -211,6 +279,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           .select()
           .eq('user_id', userId)
           .maybeSingle();
+
+      // Check if user is banned first
+      if (userData != null && userData['banned'] == true) {
+        print('DEBUG: User is banned. Logging out and navigating to WelcomeScreen.');
+        await _handleBannedUser();
+        return const WelcomeScreen();
+      }
 
       if (userData == null ||
           userData['name'] == null ||
