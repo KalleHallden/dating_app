@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:kora/pages/home_page.dart';
 import 'package:kora/pages/join_call_page.dart';
+import 'package:kora/pages/report_user_page.dart';
 import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
 import '../services/online_status_service.dart';
@@ -646,6 +647,33 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     safePrint('leaveMatchmaking request sent from Flutter.');
   }
 
+  Future<void> _handleReportUser() async {
+    if (_partnerId == null || _matchedUserName == null) return;
+
+    // Store the reported user's info before ending the call
+    final reportedUserId = _partnerId!;
+    final reportedUserName = _matchedUserName!;
+    final reportedUserProfilePicture = _matchedUserProfilePicture;
+
+    // End the call first
+    await _leaveCall(shouldReturnHome: false, reason: 'report');
+
+    // Navigate to report page
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ReportUserPage(
+            reportedUserId: reportedUserId,
+            reportedUserName: reportedUserName,
+            reportedUserProfilePicture: reportedUserProfilePicture,
+          ),
+        ),
+        (route) => route.isFirst, // Keep only the first route (home page)
+      );
+    }
+  }
+
   Future<void> _leaveCall(
       {bool shouldReturnHome = true, String reason = 'manual'}) async {
     // Store context for navigation handling in leftCall response
@@ -945,14 +973,45 @@ Don't try to be someone else's match, try to find yours.'''
                     ),
                   ],
                 ),
-                ElevatedButton(
-                  onPressed: () =>
-                      _leaveCall(shouldReturnHome: true, reason: 'leave'),
-                  style: ButtonStyle(
-                    backgroundColor: MaterialStateProperty.all(Colors.red),
-                  ),
-                  child: const Text('Leave',
-                      style: TextStyle(color: Colors.white)),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () =>
+                          _leaveCall(shouldReturnHome: true, reason: 'leave'),
+                      style: ButtonStyle(
+                        backgroundColor: MaterialStateProperty.all(Colors.red),
+                      ),
+                      child: const Text('Leave',
+                          style: TextStyle(color: Colors.white)),
+                    ),
+                    const SizedBox(width: 8),
+                    PopupMenuButton<String>(
+                      icon: const Icon(
+                        Icons.more_vert,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                      color: Colors.white,
+                      onSelected: (String value) {
+                        if (value == 'report') {
+                          _handleReportUser();
+                        }
+                      },
+                      itemBuilder: (BuildContext context) => [
+                        const PopupMenuItem<String>(
+                          value: 'report',
+                          child: Row(
+                            children: [
+                              Icon(Icons.flag, color: Colors.red),
+                              SizedBox(width: 8),
+                              Text('Report User'),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ],
             ),
