@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
+import '../services/phone_ban_service.dart';
 import 'otp_verification_screen.dart';
 
 class PhoneEntryScreen extends StatefulWidget {
@@ -16,7 +17,9 @@ class PhoneEntryScreen extends StatefulWidget {
 class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
   final _phoneController = TextEditingController();
   bool _isLoading = false;
+  bool _isCheckingBan = false;
   String? _errorMessage;
+  bool _isErrorDueToBan = false;
 
   String _selectedCountryCode = '+1';
   final Map<String, String> _countryCodes = {
@@ -96,6 +99,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     if (_phoneController.text.isEmpty) {
       setState(() {
         _errorMessage = 'Please enter your phone number';
+        _isErrorDueToBan = false;
       });
       return;
     }
@@ -104,18 +108,40 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     if (phoneNumber.length < 7) {
       setState(() {
         _errorMessage = 'Please enter a valid phone number';
+        _isErrorDueToBan = false;
       });
       return;
     }
 
     setState(() {
-      _isLoading = true;
+      _isCheckingBan = true;
       _errorMessage = null;
+      _isErrorDueToBan = false;
     });
 
     try {
-      final client = SupabaseClient.instance.client;
       final fullPhoneNumber = '$_selectedCountryCode$phoneNumber';
+
+      // Step 1: Check if phone number is banned BEFORE sending OTP
+      final banCheckResult = await PhoneBanService().checkPhoneBan(fullPhoneNumber);
+
+      if (!banCheckResult.isAllowed) {
+        // Phone is banned, in cooldown, or there was an error
+        setState(() {
+          _errorMessage = banCheckResult.message;
+          // Show red error ONLY for banned users, gray for cooldown and other errors
+          _isErrorDueToBan = banCheckResult.isBanned; // Only banned users get red
+        });
+        return;
+      }
+
+      // Step 2: Phone is allowed, proceed with OTP sending
+      setState(() {
+        _isCheckingBan = false;
+        _isLoading = true;
+      });
+
+      final client = SupabaseClient.instance.client;
 
       await client.auth.signInWithOtp(
         phone: fullPhoneNumber,
@@ -135,14 +161,17 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
     } on supabase.AuthException catch (e) {
       setState(() {
         _errorMessage = e.message;
+        _isErrorDueToBan = false;
       });
     } catch (e) {
       setState(() {
         _errorMessage = 'Failed to send verification code. Please try again.';
+        _isErrorDueToBan = false;
       });
     } finally {
       setState(() {
         _isLoading = false;
+        _isCheckingBan = false;
       });
     }
   }
@@ -258,7 +287,9 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                   padding: const EdgeInsets.only(bottom: 16.0),
                   child: Text(
                     _errorMessage!,
-                    style: const TextStyle(color: Colors.red),
+                    style: TextStyle(
+                      color: _isErrorDueToBan ? Colors.red : Colors.grey[600],
+                    ),
                   ),
                 ),
               Row(
@@ -313,7 +344,7 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _sendOTP,
+                  onPressed: (_isLoading || _isCheckingBan) ? null : _sendOTP,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF985021),
                     foregroundColor: Colors.white,
@@ -322,14 +353,27 @@ class _PhoneEntryScreenState extends State<PhoneEntryScreen> {
                     ),
                     disabledBackgroundColor: Colors.grey[300],
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
+                  child: (_isLoading || _isCheckingBan)
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Text(
+                              _isCheckingBan ? 'Verifying...' : 'Sending...',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
                         )
                       : const Text(
                           'Send Code',
