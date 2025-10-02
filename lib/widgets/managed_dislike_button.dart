@@ -92,13 +92,14 @@ class _ManagedDislikeButtonState extends State<ManagedDislikeButton> with Single
     setState(() => _isLoading = true);
 
     try {
-      // Add dislike in the backend (but don't show scaffold message)
-      if (!widget.manager.isDisliked) {
+      // Only add dislike if there's no existing like
+      // When skipping, preserve existing likes
+      if (!widget.manager.isDisliked && !widget.manager.isLiked) {
         await widget.manager.toggleDislike();
         widget.onDisliked?.call();
       }
-      
-      // Call the next handler if provided
+
+      // Call the next handler if provided (skip to next person)
       if (widget.onNextPressed != null) {
         widget.onNextPressed!();
       }
