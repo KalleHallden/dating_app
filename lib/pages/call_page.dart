@@ -56,6 +56,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   // Store leave call context for proper navigation handling
   String _leaveReason = 'manual';
   bool _leaveCallShouldReturnHome = false;
+  Timer? _leaveCallTimeout;
 
   // New fields for time limits
   User? _currentUser;
@@ -115,6 +116,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _progressController.dispose();
     _progressTimer?.cancel();
     _callDurationTimer?.cancel();
+    _leaveCallTimeout?.cancel();
     _userChannel.unsubscribe();
     OnlineStatusService().setInCall(false);
 
@@ -318,54 +320,10 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         safePrint('Supabase Realtime: Left call confirmation received.');
         if (!mounted) return;
 
-        // Clear cache when leaving call
-        if (_partnerId != null) {
-          LikeDislikeManager.clearCacheForUser(_partnerId!);
-        }
+        // Cancel timeout since we received the confirmation
+        _leaveCallTimeout?.cancel();
 
-        setState(() {
-          _isCallActive = false;
-          _isLeavingCall = false;
-          _currentSupabaseCallId = null;
-          _agoraChannelId = null;
-          _matchedUserName = null;
-          _matchedUserProfilePicture = null;
-          _partnerId = null;
-          _assignedUid = null;
-        });
-        _progressController.stop();
-        _progressTimer?.cancel();
-        _callDurationTimer?.cancel();
-        OnlineStatusService().setInCall(false);
-
-        // Reload remaining minutes after call
-        await _loadRemainingMinutes();
-
-        // Handle navigation based on the leave reason
-        if (_leaveCallShouldReturnHome) {
-          // User pressed "Leave" - go back to talk page
-          safePrint('CallPage: User left call, navigating to HomePage');
-          if (mounted) {
-            Navigator.pushAndRemoveUntil(
-              context,
-              MaterialPageRoute(builder: (_) => const HomePage()),
-              (_) => false,
-            );
-          }
-        } else {
-          // Timeout or Skip - stay on call page to allow for new connections
-          safePrint(
-              'CallPage: Call ended (${_leaveReason}), staying on CallPage for new match');
-          _isSkippingToNext = false;
-          setState(() => _isConnecting = false);
-
-          // Check if user has minutes before rejoining
-          if (_outOfMinutes) {
-            _showOutOfMinutesDialog();
-          } else {
-            _joinMatchmaking();
-          }
-        }
+        _handleLeftCallCleanup();
         return;
 
       case 'callInitiated':
@@ -674,6 +632,58 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     }
   }
 
+  /// Helper method to handle cleanup after leaving call
+  Future<void> _handleLeftCallCleanup() async {
+    // Clear cache when leaving call
+    if (_partnerId != null) {
+      LikeDislikeManager.clearCacheForUser(_partnerId!);
+    }
+
+    setState(() {
+      _isCallActive = false;
+      _isLeavingCall = false;
+      _currentSupabaseCallId = null;
+      _agoraChannelId = null;
+      _matchedUserName = null;
+      _matchedUserProfilePicture = null;
+      _partnerId = null;
+      _assignedUid = null;
+    });
+    _progressController.stop();
+    _progressTimer?.cancel();
+    _callDurationTimer?.cancel();
+    OnlineStatusService().setInCall(false);
+
+    // Reload remaining minutes after call
+    await _loadRemainingMinutes();
+
+    // Handle navigation based on the leave reason
+    if (_leaveCallShouldReturnHome) {
+      // User pressed "Leave" - go back to talk page
+      safePrint('CallPage: User left call, navigating to HomePage');
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const HomePage()),
+          (_) => false,
+        );
+      }
+    } else {
+      // Timeout or Skip - stay on call page to allow for new connections
+      safePrint(
+          'CallPage: Call ended (${_leaveReason}), staying on CallPage for new match');
+      _isSkippingToNext = false;
+      setState(() => _isConnecting = false);
+
+      // Check if user has minutes before rejoining
+      if (_outOfMinutes) {
+        _showOutOfMinutesDialog();
+      } else {
+        _joinMatchmaking();
+      }
+    }
+  }
+
   Future<void> _leaveCall(
       {bool shouldReturnHome = true, String reason = 'manual'}) async {
     // Store context for navigation handling in leftCall response
@@ -708,8 +718,19 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       },
     );
 
+    // Set a timeout in case the Realtime 'leftCall' message doesn't arrive
+    _leaveCallTimeout?.cancel();
+    _leaveCallTimeout = Timer(const Duration(seconds: 3), () {
+      if (!mounted) return;
+
+      safePrint('Leave call timeout - handling cleanup without Realtime confirmation');
+      if (_isLeavingCall) {
+        _handleLeftCallCleanup();
+      }
+    });
+
     // The actual cleanup and navigation logic is handled in the 'leftCall' case
-    // when we receive the confirmation from the backend
+    // when we receive the confirmation from the backend, or by the timeout above
   }
 
   void _nextOption() =>
