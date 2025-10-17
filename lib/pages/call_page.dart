@@ -58,6 +58,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   bool _leaveCallShouldReturnHome = false;
   Timer? _leaveCallTimeout;
 
+  // Matchmaking timeout
+  Timer? _matchmakingTimeout;
+  DateTime? _matchmakingStartTime;
+  bool _isFirstMatchmakingAttempt = true;
+
   // New fields for time limits
   User? _currentUser;
   Timer? _callDurationTimer;
@@ -117,6 +122,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _progressTimer?.cancel();
     _callDurationTimer?.cancel();
     _leaveCallTimeout?.cancel();
+    _matchmakingTimeout?.cancel();
     _userChannel.unsubscribe();
     OnlineStatusService().setInCall(false);
 
@@ -329,6 +335,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       case 'callInitiated':
         safePrint('Supabase Realtime: Call initiated! Details: $message');
         if (!mounted) return;
+
+        // Cancel matchmaking timeout since we found a match
+        _matchmakingTimeout?.cancel();
+        // Reset to first attempt for next time they search
+        _isFirstMatchmakingAttempt = true;
 
         _currentSupabaseCallId = message['callId'] as String;
         _agoraChannelId = message['channelId'] as String;
@@ -589,10 +600,152 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       },
     );
     safePrint('joinMatchmaking request sent from Flutter.');
+
+    // Start matchmaking timeout (30 seconds)
+    _startMatchmakingTimeout();
+  }
+
+  void _startMatchmakingTimeout() {
+    _matchmakingStartTime = DateTime.now();
+    _matchmakingTimeout?.cancel();
+
+    // First attempt: 30 seconds, subsequent attempts: 5 minutes
+    final duration = _isFirstMatchmakingAttempt
+        ? const Duration(seconds: 30)
+        : const Duration(minutes: 5);
+
+    safePrint(
+        'Starting matchmaking timeout: ${_isFirstMatchmakingAttempt ? "30 seconds (first attempt)" : "5 minutes"}');
+
+    _matchmakingTimeout = Timer(duration, () {
+      if (!mounted || _isCallActive) return;
+
+      safePrint(
+          'Matchmaking timeout - no match found after ${_isFirstMatchmakingAttempt ? "30 seconds" : "5 minutes"}');
+      _showNoMatchDialog();
+    });
+  }
+
+  void _showNoMatchDialog() {
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.person_search,
+                size: 64,
+                color: Color(0xFF985021),
+              ),
+              const SizedBox(height: 20),
+              const Text(
+                'No one available',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.5,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Unfortunately, it seems no one else is online right now.\n\nWould you like to keep waiting or come back later?',
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey[700],
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              // Apple-style buttons
+              Column(
+                children: [
+                  // Keep waiting button (primary action)
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        // After first attempt, wait 5 minutes before showing again
+                        _isFirstMatchmakingAttempt = false;
+                        safePrint('User chose to keep waiting for a match');
+                        _startMatchmakingTimeout();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF985021),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Keep waiting',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  // Come back later button (secondary action)
+                  SizedBox(
+                    width: double.infinity,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        // Leave matchmaking and go back to home
+                        _leaveMatchmaking();
+                        Navigator.pushAndRemoveUntil(
+                          context,
+                          MaterialPageRoute(builder: (_) => const HomePage()),
+                          (_) => false,
+                        );
+                      },
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Come back later',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[700],
+                          letterSpacing: -0.3,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _leaveMatchmaking() {
     if (_isCallActive || _isLeavingCall) return;
+
+    // Cancel matchmaking timeout when leaving
+    _matchmakingTimeout?.cancel();
 
     safePrint('Attempting to send leaveMatchmaking request from Flutter...');
     _sendSupabaseFunctionAction(
@@ -673,6 +826,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       safePrint(
           'CallPage: Call ended (${_leaveReason}), staying on CallPage for new match');
       _isSkippingToNext = false;
+      // Reset to first attempt when returning to search after a call
+      _isFirstMatchmakingAttempt = true;
       setState(() => _isConnecting = false);
 
       // Check if user has minutes before rejoining
