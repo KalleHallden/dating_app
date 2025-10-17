@@ -13,6 +13,7 @@ import 'services/supabase_client.dart';
 import 'services/online_status_service.dart';
 import 'services/call_notification_service.dart';
 import 'services/ban_detection_service.dart';
+import 'services/like_dislike_manager.dart';
 import 'widgets/call_notification.dart';
 
 // Global navigator key
@@ -97,6 +98,24 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           }
         });
       } else if (event == supabase.AuthChangeEvent.signedOut) {
+        // Clear all application-level caches on sign out
+        print('Auth state changed to signedOut - clearing all caches');
+        LikeDislikeManager.clearAllCache();
+
+        // Clear SignupProvider state if context is available
+        if (navigatorKey.currentContext != null) {
+          try {
+            final signupProvider = Provider.of<SignupProvider>(
+              navigatorKey.currentContext!,
+              listen: false,
+            );
+            signupProvider.reset();
+            print('SignupProvider reset on signout');
+          } catch (e) {
+            print('Could not reset SignupProvider: $e');
+          }
+        }
+
         OnlineStatusService().dispose();
         BanDetectionService().dispose();
         // No need to dispose CallNotificationService - it handles auth changes internally

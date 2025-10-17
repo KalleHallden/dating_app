@@ -75,6 +75,19 @@ class SignupProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clear all signup data - call this on sign out
+  void reset() {
+    _currentStep = 1;
+    userData.clear();
+    _name = null;
+    _birthdate = null;
+    _profileImage = null;
+    _gender = null;
+    _interestedIn = null;
+    _location = null;
+    _aboutMe = null;
+    notifyListeners();
+  }
 
   void addData(Map<String, dynamic> data) {
     userData.addAll(data);

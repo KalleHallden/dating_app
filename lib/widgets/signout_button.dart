@@ -1,8 +1,11 @@
 // lib/widgets/signout_button.dart
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:provider/provider.dart';
 import '../pages/welcome_screen.dart';
 import '../services/supabase_client.dart';
+import '../services/like_dislike_manager.dart';
+import '../providers/signup_provider.dart';
 
 class SignoutButton extends StatefulWidget {
   final String? text;
@@ -49,26 +52,40 @@ class _SignoutButtonState extends State<SignoutButton> {
     try {
       // Get the Supabase client
       final client = SupabaseClient.instance.client;
-      
-      // CRITICAL FIX: Clear all session data properly
-      // 1. First, sign out from Supabase
-      await client.auth.signOut();
-      
-      // 2. Add a small delay to ensure the auth state change is processed
-      await Future.delayed(const Duration(milliseconds: 100));
-      
-      // 3. Verify the session is actually cleared
+
+      // CRITICAL FIX: Clear all session data and caches properly
+      // 1. Clear all application-level caches BEFORE signing out
+      print('Clearing all app state...');
+      LikeDislikeManager.clearAllCache();
+
+      // Clear SignupProvider state (before any async operations)
+      final signupProvider = Provider.of<SignupProvider>(context, listen: false);
+      signupProvider.reset();
+      print('SignupProvider state cleared');
+
+      // 2. Sign out from Supabase with GLOBAL scope to clear all sessions
+      print('Signing out from Supabase with GLOBAL scope...');
+      await client.auth.signOut(scope: supabase.SignOutScope.global);
+
+      // 3. Add a delay to ensure the auth state change is processed
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      // 4. Verify the session is actually cleared
       final currentSession = client.auth.currentSession;
       final currentUser = client.auth.currentUser;
-      
+
       if (currentSession != null || currentUser != null) {
-        // Force clear if still exists (shouldn't happen, but just in case)
-        print('WARNING: Session still exists after signOut. Forcing clear.');
-        // You might need to clear local storage here if using web
+        // Force clear if still exists
+        print('WARNING: Session still exists after signOut. Forcing additional clear.');
+        // Try signing out again with local scope
+        await client.auth.signOut(scope: supabase.SignOutScope.local);
+        await Future.delayed(const Duration(milliseconds: 100));
+        // Clear cache again
+        LikeDislikeManager.clearAllCache();
       }
-      
+
       print('SignOut successful. Session: ${currentSession == null ? "null" : "exists"}, User: ${currentUser == null ? "null" : "exists"}');
-      
+
       // Navigate to WelcomeScreen and clear the entire navigation stack
       if (mounted) {
         // Use pushAndRemoveUntil to ensure we clear the entire navigation stack
