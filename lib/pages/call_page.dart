@@ -785,6 +785,85 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     }
   }
 
+  Future<void> _handleBlockUser() async {
+    if (_partnerId == null || _matchedUserName == null) return;
+
+    // Store the blocked user's info
+    final blockedUserId = _partnerId!;
+    final blockedUserName = _matchedUserName!;
+
+    // Show confirmation dialog
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.block, color: Colors.orange, size: 28),
+              SizedBox(width: 8),
+              Text('Block User'),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to block $blockedUserName? You will no longer be matched with this user.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+              child: const Text('Block'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      // Call the block-user edge function
+      final response = await _supabaseClient.functions.invoke(
+        'block-user',
+        body: {
+          'action': 'block',
+          'targetUserId': blockedUserId,
+        },
+      );
+
+      if (response.data?['success'] == true) {
+        // End the call
+        await _leaveCall(shouldReturnHome: true, reason: 'block');
+
+        // Show success message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$blockedUserName has been blocked'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } else {
+        throw Exception(response.data?['error'] ?? 'Failed to block user');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to block user: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   /// Helper method to handle cleanup after leaving call
   Future<void> _handleLeftCallCleanup() async {
     // Clear cache when leaving call
@@ -1172,9 +1251,21 @@ Don't try to be someone else's match, try to find yours.'''
                       onSelected: (String value) {
                         if (value == 'report') {
                           _handleReportUser();
+                        } else if (value == 'block') {
+                          _handleBlockUser();
                         }
                       },
                       itemBuilder: (BuildContext context) => [
+                        const PopupMenuItem<String>(
+                          value: 'block',
+                          child: Row(
+                            children: [
+                              Icon(Icons.block, color: Colors.orange),
+                              SizedBox(width: 8),
+                              Text('Block User'),
+                            ],
+                          ),
+                        ),
                         const PopupMenuItem<String>(
                           value: 'report',
                           child: Row(

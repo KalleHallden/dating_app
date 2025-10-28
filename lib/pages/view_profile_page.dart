@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../services/supabase_client.dart';
 import '../services/location_service.dart';
 import '../utils/age_calculator.dart';
+import 'report_user_page.dart';
 
 class ViewProfilePage extends StatefulWidget {
   final String userId;
@@ -345,6 +346,106 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
     }
   }
 
+  Future<void> _handleReportUser() async {
+    if (_userData == null) return;
+
+    final reportedUserId = widget.userId;
+    final reportedUserName = _userData!['name'] ?? 'Unknown';
+    final reportedUserProfilePicture = _userData!['profile_picture_url'] ?? _userData!['profile_picture'];
+
+    // Navigate to report page
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ReportUserPage(
+            reportedUserId: reportedUserId,
+            reportedUserName: reportedUserName,
+            reportedUserProfilePicture: reportedUserProfilePicture,
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleBlockUser() async {
+    if (_userData == null) return;
+
+    final blockedUserId = widget.userId;
+    final blockedUserName = _userData!['name'] ?? 'Unknown';
+
+    // Show confirmation dialog
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.block, color: Colors.orange, size: 28),
+              SizedBox(width: 8),
+              Text('Block User'),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to block $blockedUserName? You will no longer be matched with this user.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+              ),
+              child: const Text('Block'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final client = SupabaseClient.instance.client;
+
+      // Call the block-user edge function
+      final response = await client.functions.invoke(
+        'block-user',
+        body: {
+          'action': 'block',
+          'targetUserId': blockedUserId,
+        },
+      );
+
+      if (response.data?['success'] == true) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$blockedUserName has been blocked'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // Go back to previous screen
+          Navigator.of(context).pop();
+        }
+      } else {
+        throw Exception(response.data?['error'] ?? 'Failed to block user');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to block user: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
@@ -391,6 +492,40 @@ class _ViewProfilePageState extends State<ViewProfilePage> {
         elevation: 0,
         backgroundColor: Colors.transparent,
         foregroundColor: Colors.black,
+        actions: [
+          PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert),
+            onSelected: (String value) {
+              if (value == 'report') {
+                _handleReportUser();
+              } else if (value == 'block') {
+                _handleBlockUser();
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem<String>(
+                value: 'block',
+                child: Row(
+                  children: [
+                    Icon(Icons.block, color: Colors.orange),
+                    SizedBox(width: 8),
+                    Text('Block User'),
+                  ],
+                ),
+              ),
+              const PopupMenuItem<String>(
+                value: 'report',
+                child: Row(
+                  children: [
+                    Icon(Icons.flag, color: Colors.red),
+                    SizedBox(width: 8),
+                    Text('Report User'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         child: Column(

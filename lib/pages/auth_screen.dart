@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/signup_provider.dart';
 import 'signup_screen.dart';
 import 'call_page.dart';
@@ -188,6 +190,17 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  Future<void> _launchUrl(String urlString) async {
+    final url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -228,6 +241,42 @@ class _AuthScreenState extends State<AuthScreen> {
             TextButton(
               onPressed: _isLoading ? null : _signIn,
               child: const Text('Already have an account? Sign In'),
+            ),
+            const Spacer(),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 24.0),
+              child: RichText(
+                textAlign: TextAlign.center,
+                text: TextSpan(
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
+                  ),
+                  children: [
+                    const TextSpan(
+                      text: 'By tapping Sign In or Create Account, you agree to our ',
+                    ),
+                    TextSpan(
+                      text: 'Terms of Service',
+                      style: const TextStyle(
+                        decoration: TextDecoration.underline,
+                      ),
+                      recognizer: TapGestureRecognizer()
+                        ..onTap = () => _launchUrl('https://kalletech.com/terms-of-service/'),
+                    ),
+                    const TextSpan(text: ' and '),
+                    TextSpan(
+                      text: 'Privacy Policy',
+                      style: const TextStyle(
+                        decoration: TextDecoration.underline,
+                      ),
+                      recognizer: TapGestureRecognizer()
+                        ..onTap = () => _launchUrl('https://kalletech.com/privacy-policy/'),
+                    ),
+                    const TextSpan(text: '.'),
+                  ],
+                ),
+              ),
             ),
           ],
         ),

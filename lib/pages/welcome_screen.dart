@@ -1,8 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'phone_entry_screen.dart';
 
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
+
+  Future<void> _launchUrl(BuildContext context, String urlString) async {
+    final url = Uri.parse(urlString);
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open link')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -86,6 +99,41 @@ class WelcomeScreen extends StatelessWidget {
                 ),
               ),
               const Spacer(flex: 1),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 24.0),
+                child: RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                    ),
+                    children: [
+                      const TextSpan(
+                        text: 'By tapping Sign In or Create Account, you agree to our ',
+                      ),
+                      TextSpan(
+                        text: 'Terms of Service',
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => _launchUrl(context, 'https://kalletech.com/terms-of-service/'),
+                      ),
+                      const TextSpan(text: ' and '),
+                      TextSpan(
+                        text: 'Privacy Policy',
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () => _launchUrl(context, 'https://kalletech.com/privacy-policy/'),
+                      ),
+                      const TextSpan(text: '.'),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
         ),
