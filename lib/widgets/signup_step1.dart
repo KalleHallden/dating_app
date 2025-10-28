@@ -209,11 +209,13 @@ class _SignupStep1State extends State<SignupStep1> {
           const SizedBox(height: 24),
           GestureDetector(
             onTap: () async {
+              final currentContext = context;
               final date = await showDatePicker(
-                context: context,
+                context: currentContext,
                 initialDate: _birthdate ?? DateTime(2000),
                 firstDate: DateTime(1900),
                 lastDate: DateTime.now().subtract(const Duration(days: 18 * 365)),
+                helpText: 'Select your date of birth',
                 builder: (context, child) {
                   return Theme(
                     data: Theme.of(context).copyWith(
@@ -225,7 +227,44 @@ class _SignupStep1State extends State<SignupStep1> {
                   );
                 },
               );
-              if (date != null) setState(() => _birthdate = date);
+
+              if (date != null && mounted) {
+                // Calculate age
+                final age = _calculateAge(date);
+
+                if (age < 18) {
+                  // Show error dialog for under 18
+                  await showDialog(
+                    context: currentContext,
+                    barrierDismissible: false,
+                    builder: (BuildContext dialogContext) {
+                      return AlertDialog(
+                        icon: const Icon(
+                          Icons.error_outline,
+                          color: Colors.orange,
+                          size: 48,
+                        ),
+                        title: const Text('Age Requirement Not Met'),
+                        content: const Text(
+                          'Kora is only available to users 18 and older. You will not be able to create an account at this time.',
+                          textAlign: TextAlign.center,
+                        ),
+                        actions: [
+                          ElevatedButton(
+                            onPressed: () => Navigator.of(dialogContext).pop(),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF985021),
+                            ),
+                            child: const Text('OK'),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                } else {
+                  setState(() => _birthdate = date);
+                }
+              }
             },
             child: Container(
               width: double.infinity,

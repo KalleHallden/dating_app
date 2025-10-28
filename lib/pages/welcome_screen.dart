@@ -110,7 +110,7 @@ class WelcomeScreen extends StatelessWidget {
                     ),
                     children: [
                       const TextSpan(
-                        text: 'By tapping Sign In or Create Account, you agree to our ',
+                        text: 'By continuing, you confirm that you are 18 years or older and agree to our ',
                       ),
                       TextSpan(
                         text: 'Terms of Service',
