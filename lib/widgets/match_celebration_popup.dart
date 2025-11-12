@@ -132,59 +132,62 @@ class _MatchCelebrationPopupState extends State<MatchCelebrationPopup>
                   // Profile pictures
                   ScaleTransition(
                     scale: _scaleAnimation,
-                    child: SizedBox(
-                      height: 200,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          // Current user picture (left)
-                          Positioned(
-                            left: MediaQuery.of(context).size.width * 0.2,
-                            child: _buildProfilePicture(
-                              widget.currentUserProfilePicture,
-                              widget.currentUserName,
-                              true,
-                            ),
-                          ),
-
-                          // Matched user picture (right)
-                          Positioned(
-                            right: MediaQuery.of(context).size.width * 0.2,
-                            child: _buildProfilePicture(
-                              widget.matchedUserProfilePicture,
-                              widget.matchedUserName,
-                              false,
-                            ),
-                          ),
-
-                          // App logo in the middle
-                          Center(
-                            child: Container(
-                              width: 80,
-                              height: 80,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.3),
-                                    blurRadius: 20,
-                                    spreadRadius: 5,
-                                  ),
-                                ],
+                    child: Center(
+                      child: SizedBox(
+                        width: 300,
+                        height: 200,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            // Current user picture (left)
+                            Positioned(
+                              left: 0,
+                              child: _buildProfilePicture(
+                                widget.currentUserProfilePicture,
+                                widget.currentUserName,
+                                true,
                               ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(10.0),
-                                child: ClipOval(
-                                  child: Image.asset(
-                                    'assets/icon/app_icon.png',
-                                    fit: BoxFit.cover,
+                            ),
+
+                            // Matched user picture (right)
+                            Positioned(
+                              right: 0,
+                              child: _buildProfilePicture(
+                                widget.matchedUserProfilePicture,
+                                widget.matchedUserName,
+                                false,
+                              ),
+                            ),
+
+                            // App logo in the middle
+                            Center(
+                              child: Container(
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle,
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(alpha: 0.3),
+                                      blurRadius: 20,
+                                      spreadRadius: 5,
+                                    ),
+                                  ],
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.all(10.0),
+                                  child: ClipOval(
+                                    child: Image.asset(
+                                      'assets/icon/app_icon.png',
+                                      fit: BoxFit.cover,
+                                    ),
                                   ),
                                 ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
