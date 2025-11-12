@@ -65,15 +65,6 @@ class _ManagedLikeButtonState extends State<ManagedLikeButton> with SingleTicker
       
       if (isNowLiked && !wasLiked) {
         widget.onLiked?.call();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Liked!'),
-              duration: Duration(seconds: 1),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
       } else if (!isNowLiked && wasLiked) {
         widget.onUnliked?.call();
         if (mounted) {

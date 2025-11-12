@@ -5,6 +5,7 @@ import '../services/supabase_client.dart';
 import '../services/like_dislike_manager.dart';
 import 'managed_like_button.dart';
 import 'managed_dislike_button.dart';
+import 'match_celebration_popup.dart';
 
 class ManagedLikeDislikeButtons extends StatefulWidget {
   final String targetUserId;
@@ -31,11 +32,50 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
   supabase.RealtimeChannel? _matchChannel;
   supabase.RealtimeChannel? _matchDeleteChannel;
   bool _isInitialized = false;
+  String? _currentUserName;
+  String? _currentUserProfilePicture;
+  String? _matchedUserName;
+  String? _matchedUserProfilePicture;
 
   @override
   void initState() {
     super.initState();
     _initializeManager();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final client = SupabaseClient.instance.client;
+      final currentUser = client.auth.currentUser;
+
+      if (currentUser == null) return;
+
+      // Load current user data
+      final currentUserData = await client
+          .from('users')
+          .select('name, profile_picture_url')
+          .eq('user_id', currentUser.id)
+          .single();
+
+      // Load matched user data
+      final matchedUserData = await client
+          .from('users')
+          .select('name, profile_picture_url')
+          .eq('user_id', widget.targetUserId)
+          .single();
+
+      if (mounted) {
+        setState(() {
+          _currentUserName = currentUserData['name'];
+          _currentUserProfilePicture = currentUserData['profile_picture_url'];
+          _matchedUserName = matchedUserData['name'];
+          _matchedUserProfilePicture = matchedUserData['profile_picture_url'];
+        });
+      }
+    } catch (e) {
+      print('Error loading user data: $e');
+    }
   }
   
   Future<void> _initializeManager() async {
@@ -135,15 +175,9 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
             if (involvesCurrentUser && involvesTargetUser) {
               print('Match confirmed! Notifying user.');
               widget.onMatched?.call();
-              
+
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('It\'s a match! 🎉'),
-                    duration: Duration(seconds: 3),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+                _showMatchCelebration();
               }
             }
           },
@@ -197,6 +231,36 @@ class _ManagedLikeDislikeButtonsState extends State<ManagedLikeDislikeButtons> {
           },
         )
         .subscribe();
+  }
+
+  Future<void> _showMatchCelebration() async {
+    // Ensure we have user data
+    if (_currentUserName == null || _matchedUserName == null) {
+      return;
+    }
+
+    await showGeneralDialog(
+      context: context,
+      barrierDismissible: false,
+      barrierLabel: '',
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      transitionDuration: const Duration(milliseconds: 400),
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return MatchCelebrationPopup(
+          currentUserName: _currentUserName!,
+          matchedUserName: _matchedUserName!,
+          currentUserProfilePicture: _currentUserProfilePicture,
+          matchedUserProfilePicture: _matchedUserProfilePicture,
+          onDismiss: () => Navigator.of(context).pop(),
+        );
+      },
+      transitionBuilder: (context, animation, secondaryAnimation, child) {
+        return FadeTransition(
+          opacity: animation,
+          child: child,
+        );
+      },
+    );
   }
 
   @override
