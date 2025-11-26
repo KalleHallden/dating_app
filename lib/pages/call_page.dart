@@ -173,6 +173,9 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   void _startProgressAnimation() {
     _callStartTime = DateTime.now();
+
+    // Reset the progress controller to start from 0
+    _progressController.reset();
     _progressController.forward();
 
     // Update progress every second for smooth animation
