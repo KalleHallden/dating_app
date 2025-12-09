@@ -10,6 +10,7 @@ import 'package:kora/pages/join_call_page.dart';
 import 'package:kora/pages/report_user_page.dart';
 import '../services/call_service.dart';
 import '../widgets/managed_like_dislike_buttons.dart';
+import '../widgets/pre_call_confirmation_popup.dart';
 import '../services/online_status_service.dart';
 import '../services/like_dislike_manager.dart';
 import '../models/User.dart';
@@ -33,6 +34,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   bool _isCallActive = false;
   bool _isLeavingCall = false;
   bool _isSkippingToNext = false;
+  bool _showingPreCallConfirmation = false;
+  bool _userAcceptedCall = false; // Track if user accepted to control audio connection
   String? _currentSupabaseCallId;
   String? _agoraChannelId;
   String? _matchedUserName;
@@ -368,15 +371,17 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Reload user data after call initiation
         await _loadRemainingMinutes();
 
-        // Fetch partner's profile information
+        // Fetch partner's profile information including date_of_birth for age
         try {
           final partnerData = await _supabaseClient
               .from('users')
-              .select('name, profile_picture')
+              .select('name, profile_picture, date_of_birth')
               .eq('user_id', partnerId)
               .maybeSingle();
 
-          if (partnerData != null) {
+          if (partnerData != null && mounted) {
+            // IMPORTANT: Start the call IMMEDIATELY before showing popup
+            // This ensures if either user skips, the call ends for both
             setState(() {
               _matchedUserName = partnerData['name'] as String?;
               _matchedUserProfilePicture =
@@ -387,23 +392,103 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
                 'Matched with: $_matchedUserName (ID: $partnerId) as $role');
             safePrint('Profile picture URL: $_matchedUserProfilePicture');
 
+            // Start progress animation and set online status
             _startProgressAnimation();
             OnlineStatusService().setInCall(true);
 
-            if (role == 'called') {
+            // Mark call as active on backend
+            if (role == 'called' && _currentSupabaseCallId != null) {
               await _callService.markCallAsActive(_currentSupabaseCallId!);
             }
 
-            // Show call info with time limit
-            if (mounted && _currentUser != null) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                      'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
-                  duration: const Duration(seconds: 5),
-                  backgroundColor: Colors.green,
-                ),
-              );
+            // Calculate age for popup
+            final String matchName = partnerData['name'] as String? ?? 'Unknown';
+            final String? dateOfBirth = partnerData['date_of_birth'] as String?;
+            int matchAge = 0;
+
+            if (dateOfBirth != null) {
+              try {
+                matchAge = _calculateAge(dateOfBirth);
+              } catch (e) {
+                safePrint('Error calculating age: $e');
+              }
+            }
+
+            // Store context before async gap
+            final dialogContext = context;
+
+            // Set flag to hide call UI and show connecting screen instead
+            setState(() {
+              _showingPreCallConfirmation = true;
+            });
+
+            // Now show pre-call confirmation popup (call is already running in background)
+            if (!mounted) return;
+
+            final shouldAcceptCall = await showDialog<bool>(
+              context: dialogContext,
+              barrierDismissible: false,
+              builder: (BuildContext context) {
+                return PreCallConfirmationPopup(
+                  matchName: matchName,
+                  matchAge: matchAge,
+                  onAccept: () => Navigator.of(context).pop(true),
+                  onSkip: () => Navigator.of(context).pop(false),
+                );
+              },
+            );
+
+            if (!mounted) return;
+
+            // Check if call is still active - partner might have skipped while popup was showing
+            if (_currentSupabaseCallId == null || !_isCallActive) {
+              safePrint('Call already ended (partner likely skipped), ignoring user choice');
+              // Clear flag and return
+              setState(() {
+                _showingPreCallConfirmation = false;
+              });
+              return;
+            }
+
+            // User accepted the call - reveal UI and show confirmation message
+            if (shouldAcceptCall == true) {
+              safePrint('User accepted the call');
+
+              // Clear the flag to reveal call UI and allow audio connection
+              setState(() {
+                _showingPreCallConfirmation = false;
+                _userAcceptedCall = true; // Allow JoinChannelAudio to render
+              });
+
+              // Show call info with time limit
+              if (mounted && _currentUser != null && _isCallActive) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                        'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
+                    duration: const Duration(seconds: 5),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } else {
+              // User skipped - trigger dislike and leave the already-active call
+              // DO NOT clear the flag - let _leaveCall handle the state transition
+              safePrint('User skipped the match, ending call');
+
+              // First trigger the dislike (only if not already disliked)
+              try {
+                final likeManager = LikeDislikeManager.forUser(partnerId);
+                if (!likeManager.isDisliked) {
+                  await likeManager.toggleDislike();
+                }
+              } catch (e) {
+                safePrint('Error toggling dislike (manager may be disposed): $e');
+              }
+
+              // Then leave the call (skip to next)
+              // The flag will be cleared by _leaveCall or partnerLeftCall handler
+              await _leaveCall(shouldReturnHome: false, reason: 'skip');
             }
           } else {
             safePrint('Warning: Partner data not found for ID: $partnerId');
@@ -483,6 +568,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         setState(() {
           _isCallActive = false;
           _isLeavingCall = false;
+          _showingPreCallConfirmation = false; // Clear flag in case popup was showing
+          _userAcceptedCall = false; // Reset for next call
           _currentSupabaseCallId = null;
           _agoraChannelId = null;
           _matchedUserName = null;
@@ -877,6 +964,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     setState(() {
       _isCallActive = false;
       _isLeavingCall = false;
+      _showingPreCallConfirmation = false; // Clear flag when leaving call
+      _userAcceptedCall = false; // Reset for next call
       _currentSupabaseCallId = null;
       _agoraChannelId = null;
       _matchedUserName = null;
@@ -975,6 +1064,17 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   void _prevOption() => setState(() =>
       currentIndex = (currentIndex - 1 + options.length) % options.length);
 
+  int _calculateAge(String dateOfBirth) {
+    final birthDate = DateTime.parse(dateOfBirth);
+    final today = DateTime.now();
+    int age = today.year - birthDate.year;
+    if (today.month < birthDate.month ||
+        (today.month == birthDate.month && today.day < birthDate.day)) {
+      age--;
+    }
+    return age;
+  }
+
   @override
   Widget build(BuildContext context) {
     // Connecting / Initializing Supabase
@@ -1058,8 +1158,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       );
     }
 
-    // Searching for match / Wu Wei quote screen
-    if (!_isCallActive) {
+    // Show connecting screen if popup is showing or if not in active call
+    if (!_isCallActive || _showingPreCallConfirmation) {
       return Scaffold(
         appBar: AppBar(
           leading: BackButton(onPressed: () {
@@ -1314,15 +1414,16 @@ Don't try to be someone else's match, try to find yours.'''
             ),
           ),
           // Pass the Agora channel ID and call ID to JoinChannelAudio
+          // Only render when user has accepted the call
           Align(
             alignment: Alignment.center,
-            child: _agoraChannelId != null
+            child: _agoraChannelId != null && _userAcceptedCall
                 ? JoinChannelAudio(
                     channelID: _agoraChannelId!,
                     callId: _currentSupabaseCallId,
                     uid: _assignedUid,
                   )
-                : const CircularProgressIndicator(color: Colors.white),
+                : const SizedBox.shrink(), // Empty widget when not ready
           ),
           Align(
             alignment: Alignment.bottomCenter,
