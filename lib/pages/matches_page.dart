@@ -296,115 +296,168 @@ class _MatchesPageState extends State<MatchesPage> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.favorite_border,
-            size: 80,
-            color: Colors.grey[400],
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No matches yet',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: Colors.grey[700],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF985021).withValues(alpha: 0.08),
+              ),
+              child: Icon(
+                Icons.favorite_rounded,
+                size: 40,
+                color: const Color(0xFF985021).withValues(alpha: 0.4),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'When you match with someone, they\'ll appear here',
-            style: TextStyle(
-              fontSize: 16,
-              color: Colors.grey[600],
+            const SizedBox(height: 24),
+            Text(
+              'No matches yet',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: Colors.grey[900],
+                letterSpacing: -0.5,
+              ),
             ),
-            textAlign: TextAlign.center,
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              'When you match with someone,\nthey\'ll appear here',
+              style: TextStyle(
+                fontSize: 16,
+                height: 1.5,
+                color: Colors.grey[600],
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildMatchTile(Map<String, dynamic> match) {
     final currentUser = SupabaseClient.instance.client.auth.currentUser;
-    
-    return ListTile(
-      key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
-      onTap: () => _navigateToProfile(match),
-      leading: Stack(
-        children: [
-          CircleAvatar(
-            radius: 28,
-            backgroundColor: Colors.grey[300],
-            backgroundImage: match['profile_picture_url'] != null && 
-                           match['profile_picture_url'].isNotEmpty
-                ? NetworkImage(match['profile_picture_url'])
-                : null,
-            child: match['profile_picture_url'] == null || 
-                   match['profile_picture_url'].isEmpty
-                ? Text(
-                    match['name'].isNotEmpty ? match['name'][0].toUpperCase() : '?',
-                    style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey,
-                    ),
-                  )
-                : null,
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: Colors.grey.withValues(alpha: 0.1),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
-          // Online status indicator
-          Positioned(
-            bottom: 0,
-            right: 0,
-            child: Container(
-              width: 16,
-              height: 16,
+        ],
+      ),
+      child: ListTile(
+        key: _matchKeys[match['match_id']] ?? ValueKey(match['match_id']),
+        onTap: () => _navigateToProfile(match),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Stack(
+          children: [
+            Container(
               decoration: BoxDecoration(
-                color: match['is_online'] ? Colors.green : Colors.grey,
                 shape: BoxShape.circle,
-                border: Border.all(
-                  color: Theme.of(context).scaffoldBackgroundColor,
-                  width: 2,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: CircleAvatar(
+                radius: 28,
+                backgroundColor: const Color(0xFF985021).withValues(alpha: 0.1),
+                backgroundImage: match['profile_picture_url'] != null &&
+                               match['profile_picture_url'].isNotEmpty
+                    ? NetworkImage(match['profile_picture_url'])
+                    : null,
+                child: match['profile_picture_url'] == null ||
+                       match['profile_picture_url'].isEmpty
+                    ? Text(
+                        match['name'].isNotEmpty ? match['name'][0].toUpperCase() : '?',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF985021).withValues(alpha: 0.6),
+                        ),
+                      )
+                    : null,
+              ),
+            ),
+            // Online status indicator
+            Positioned(
+              bottom: 0,
+              right: 0,
+              child: Container(
+                width: 14,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: match['is_online']
+                      ? const Color(0xFF10B981)
+                      : Colors.grey.withValues(alpha: 0.4),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Colors.white,
+                    width: 2.5,
+                  ),
                 ),
               ),
             ),
+          ],
+        ),
+        title: Text(
+          '${match['name']}, ${match['age']}',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+            color: Colors.grey[900],
+            letterSpacing: -0.2,
           ),
-        ],
-      ),
-      title: Text(
-        '${match['name']}, ${match['age']}',
-        style: const TextStyle(
-          fontWeight: FontWeight.w600,
-          fontSize: 16,
         ),
-      ),
-      subtitle: Text(
-        _getLastMessageText(match['last_message_at']),
-        style: TextStyle(
-          color: Colors.grey[600],
-          fontSize: 14,
-        ),
-      ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Call button with restriction handling
-          if (currentUser != null)
-            CallRestrictionButton(
-              currentUserId: currentUser.id,
-              matchedUserId: match['user_id'],
-              isOnline: match['is_online'] ?? false,
-              isAvailable: match['is_available'] ?? false,
-              onCallInitiated: () => _initiateCall(match),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Text(
+            _getLastMessageText(match['last_message_at']),
+            style: TextStyle(
+              color: Colors.grey[600],
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
             ),
-          Icon(
-            Icons.arrow_forward_ios,
-            size: 16,
-            color: Colors.grey[400],
           ),
-        ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Call button with restriction handling
+            if (currentUser != null)
+              CallRestrictionButton(
+                currentUserId: currentUser.id,
+                matchedUserId: match['user_id'],
+                isOnline: match['is_online'] ?? false,
+                isAvailable: match['is_available'] ?? false,
+                onCallInitiated: () => _initiateCall(match),
+              ),
+            const SizedBox(width: 4),
+            Icon(
+              Icons.arrow_forward_ios,
+              size: 14,
+              color: Colors.grey[400],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -471,17 +524,36 @@ class _MatchesPageState extends State<MatchesPage> {
     }
 
     return Scaffold(
+      backgroundColor: const Color(0xFFFAFAFA),
       appBar: AppBar(
-        title: const Text('Matches'),
+        title: Text(
+          'Matches',
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 20,
+            color: Colors.grey[900],
+            letterSpacing: -0.5,
+          ),
+        ),
+        backgroundColor: Colors.white,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Container(
+            height: 1,
+            color: Colors.grey.withValues(alpha: 0.1),
+          ),
+        ),
       ),
       body: RefreshIndicator(
+        color: const Color(0xFF985021),
         onRefresh: _loadMatches,
         child: _matches.isEmpty
             ? _buildEmptyState()
-            : ListView.separated(
+            : ListView.builder(
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 itemCount: _matches.length,
-                separatorBuilder: (context, index) => const Divider(height: 1),
                 itemBuilder: (context, index) => _buildMatchTile(_matches[index]),
               ),
       ),
