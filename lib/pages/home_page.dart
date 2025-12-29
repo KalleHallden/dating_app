@@ -13,19 +13,28 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-	
-  late int _selectedIndex;
-  static final List<Widget> _pages = <Widget>[
-	  TalkPage(),
-	  MatchesPage(),
-	  ProfilePage(),
 
-  ];
+  late int _selectedIndex;
+  bool _showTutorial = false;
+  List<Widget> _pages = [];
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.initialIndex;
+    _checkTutorialStatus();
+  }
+
+  Future<void> _checkTutorialStatus() async {
+    // Temporarily always show tutorial for testing
+    setState(() {
+      _showTutorial = true;
+      _pages = [
+        TalkPage(showTutorial: _showTutorial),
+        MatchesPage(),
+        ProfilePage(),
+      ];
+    });
   }
 
   void _onItemTapped(int index) {

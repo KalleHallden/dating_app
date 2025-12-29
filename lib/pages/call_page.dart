@@ -26,6 +26,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   late final supabase.SupabaseClient _supabaseClient;
   // Supabase Realtime channel for user-specific broadcasts
   late final supabase.RealtimeChannel _userChannel;
+  // Supabase Realtime channel for call updates
+  supabase.RealtimeChannel? _callChannel;
 
   // Add CallService instance
   final CallService _callService = CallService();
@@ -35,7 +37,11 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
   bool _isLeavingCall = false;
   bool _isSkippingToNext = false;
   bool _showingPreCallConfirmation = false;
-  bool _userAcceptedCall = false; // Track if user accepted to control audio connection
+
+  // Track when both users are ready to start Agora
+  bool _isReady = false;
+  bool _bothUsersReady = false;
+
   String? _currentSupabaseCallId;
   String? _agoraChannelId;
   String? _matchedUserName;
@@ -127,6 +133,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     _leaveCallTimeout?.cancel();
     _matchmakingTimeout?.cancel();
     _userChannel.unsubscribe();
+    _callChannel?.unsubscribe();
     OnlineStatusService().setInCall(false);
 
     // Clear the cache when leaving the call page
@@ -260,6 +267,170 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
     return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 
+  // Mark this user as ready on the database
+  Future<void> _markUserReady() async {
+    if (_currentSupabaseCallId == null) return;
+
+    try {
+      final currentUserId = _supabaseClient.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      // Fetch call to determine if we're caller or called
+      final callData = await _supabaseClient
+          .from('calls')
+          .select('caller_id')
+          .eq('id', _currentSupabaseCallId!)
+          .maybeSingle();
+
+      if (callData != null) {
+        final isCaller = callData['caller_id'] == currentUserId;
+        final fieldToUpdate = isCaller ? 'caller_ready' : 'called_ready';
+
+        await _supabaseClient
+            .from('calls')
+            .update({fieldToUpdate: true})
+            .eq('id', _currentSupabaseCallId!);
+
+        setState(() {
+          _isReady = true;
+        });
+
+        safePrint('CallPage: Marked ${isCaller ? "caller" : "called"} as ready');
+
+        // Check if both users are ready now (if call_started_at is already set)
+        _checkIfBothUsersReady();
+      }
+    } catch (e) {
+      safePrint('CallPage: Error marking user ready: $e');
+    }
+  }
+
+
+  // Subscribe to call updates to detect when call_started_at is set
+  void _subscribeToCallUpdates() {
+    if (_currentSupabaseCallId == null) return;
+
+    // Unsubscribe from previous channel if exists
+    _callChannel?.unsubscribe();
+
+    safePrint('CallPage: Subscribing to call updates for call $_currentSupabaseCallId');
+
+    _callChannel = _supabaseClient
+        .channel('call-updates-${_currentSupabaseCallId}')
+        .onPostgresChanges(
+          event: supabase.PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'calls',
+          filter: supabase.PostgresChangeFilter(
+            type: supabase.PostgresChangeFilterType.eq,
+            column: 'id',
+            value: _currentSupabaseCallId!,
+          ),
+          callback: (payload) {
+            safePrint('CallPage: Received call update: ${payload.newRecord}');
+            _handleCallUpdate(payload.newRecord);
+          },
+        )
+        .subscribe();
+  }
+
+  // Handle call updates from realtime subscription
+  void _handleCallUpdate(Map<String, dynamic> callData) {
+    // Check if call_started_at was just set (trigger fired)
+    if (callData['call_started_at'] != null && !_bothUsersReady) {
+      safePrint('CallPage: call_started_at detected! Both users ready, starting Agora');
+
+      setState(() {
+        _bothUsersReady = true; // NOW allow JoinChannelAudio to render
+      });
+
+      // START the call timer and animations NOW (not before)
+      _startProgressAnimation();
+      OnlineStatusService().setInCall(true);
+
+      // NOW load partner details (not before)
+      _loadPartnerDetails();
+
+      // Show success message
+      if (mounted && _currentUser != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
+            duration: const Duration(seconds: 5),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    }
+  }
+
+  // Check if both users are ready by checking call_started_at
+  Future<void> _checkIfBothUsersReady() async {
+    if (_currentSupabaseCallId == null) return;
+
+    try {
+      final callData = await _supabaseClient
+          .from('calls')
+          .select('call_started_at')
+          .eq('id', _currentSupabaseCallId!)
+          .maybeSingle();
+
+      if (callData != null && callData['call_started_at'] != null && !_bothUsersReady) {
+        safePrint('CallPage: call_started_at already set! Both users ready, starting Agora');
+
+        setState(() {
+          _bothUsersReady = true; // NOW allow JoinChannelAudio to render
+        });
+
+        // START the call timer and animations NOW (not before)
+        _startProgressAnimation();
+        OnlineStatusService().setInCall(true);
+
+        // NOW load partner details (not before)
+        _loadPartnerDetails();
+
+        // Show success message
+        if (mounted && _currentUser != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      safePrint('CallPage: Error checking if both users ready: $e');
+    }
+  }
+
+  /// Load partner details when both users are ready
+  Future<void> _loadPartnerDetails() async {
+    if (_partnerId == null) return;
+
+    try {
+      final partnerData = await _supabaseClient
+          .from('users')
+          .select('name, profile_picture')
+          .eq('user_id', _partnerId!)
+          .maybeSingle();
+
+      if (partnerData != null && mounted) {
+        setState(() {
+          _matchedUserName = partnerData['name'] as String?;
+          _matchedUserProfilePicture = partnerData['profile_picture'] as String?;
+        });
+        safePrint('Partner details loaded: $_matchedUserName');
+        safePrint('Profile picture URL: $_matchedUserProfilePicture');
+      }
+    } catch (e) {
+      safePrint('Error loading partner details: $e');
+    }
+  }
+
   /// Sets up Supabase Realtime listener and initiates the initial state clear and matchmaking join.
   Future<void> _setupSupabaseIntegration() async {
     safePrint('→ Initializing Supabase Integration');
@@ -371,30 +542,19 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
         // Reload user data after call initiation
         await _loadRemainingMinutes();
 
-        // Fetch partner's profile information including date_of_birth for age
+        // Fetch partner's date_of_birth for age calculation (for popup only)
         try {
           final partnerData = await _supabaseClient
               .from('users')
-              .select('name, profile_picture, date_of_birth')
+              .select('name, date_of_birth')
               .eq('user_id', partnerId)
               .maybeSingle();
 
           if (partnerData != null && mounted) {
-            // IMPORTANT: Start the call IMMEDIATELY before showing popup
-            // This ensures if either user skips, the call ends for both
+            // Set call as active but DO NOT load name/picture yet
             setState(() {
-              _matchedUserName = partnerData['name'] as String?;
-              _matchedUserProfilePicture =
-                  partnerData['profile_picture'] as String?;
               _isCallActive = true;
             });
-            safePrint(
-                'Matched with: $_matchedUserName (ID: $partnerId) as $role');
-            safePrint('Profile picture URL: $_matchedUserProfilePicture');
-
-            // Start progress animation and set online status
-            _startProgressAnimation();
-            OnlineStatusService().setInCall(true);
 
             // Mark call as active on backend
             if (role == 'called' && _currentSupabaseCallId != null) {
@@ -422,7 +582,7 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
               _showingPreCallConfirmation = true;
             });
 
-            // Now show pre-call confirmation popup (call is already running in background)
+            // Now show pre-call confirmation popup
             if (!mounted) return;
 
             final shouldAcceptCall = await showDialog<bool>(
@@ -443,37 +603,42 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
             // Check if call is still active - partner might have skipped while popup was showing
             if (_currentSupabaseCallId == null || !_isCallActive) {
               safePrint('Call already ended (partner likely skipped), ignoring user choice');
-              // Clear flag and return
               setState(() {
                 _showingPreCallConfirmation = false;
               });
               return;
             }
 
-            // User accepted the call - reveal UI and show confirmation message
+            // User accepted the call - mark as ready and wait for other user
             if (shouldAcceptCall == true) {
               safePrint('User accepted the call');
 
-              // Clear the flag to reveal call UI and allow audio connection
+              // Clear the flag to reveal call UI
               setState(() {
                 _showingPreCallConfirmation = false;
-                _userAcceptedCall = true; // Allow JoinChannelAudio to render
               });
 
-              // Show call info with time limit
-              if (mounted && _currentUser != null && _isCallActive) {
+              // Subscribe to call updates to detect when call_started_at is set
+              _subscribeToCallUpdates();
+
+              // Mark this user as ready in database
+              await _markUserReady();
+
+              // Check if both users are already ready (other user might have joined first)
+              await _checkIfBothUsersReady();
+
+              // Show waiting message if not both ready yet
+              if (mounted && _currentUser != null && _isCallActive && !_bothUsersReady) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: Text(
-                        'Call started! Maximum duration: 5 minutes. Monthly minutes remaining: ${_currentUser!.remainingMonthlyMinutes}'),
-                    duration: const Duration(seconds: 5),
-                    backgroundColor: Colors.green,
+                    content: const Text('Waiting for other user to join...'),
+                    duration: const Duration(seconds: 3),
+                    backgroundColor: Colors.orange,
                   ),
                 );
               }
             } else {
-              // User skipped - trigger dislike and leave the already-active call
-              // DO NOT clear the flag - let _leaveCall handle the state transition
+              // User skipped - trigger dislike and leave the call
               safePrint('User skipped the match, ending call');
 
               // First trigger the dislike (only if not already disliked)
@@ -487,26 +652,19 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
               }
 
               // Then leave the call (skip to next)
-              // The flag will be cleared by _leaveCall or partnerLeftCall handler
               await _leaveCall(shouldReturnHome: false, reason: 'skip');
             }
           } else {
             safePrint('Warning: Partner data not found for ID: $partnerId');
             setState(() {
-              _matchedUserName = 'Unknown User';
-              _matchedUserProfilePicture = null;
               _isCallActive = true;
             });
-            _startProgressAnimation();
           }
         } catch (e) {
           safePrint('Error fetching partner data: $e');
           setState(() {
-            _matchedUserName = 'Error User';
-            _matchedUserProfilePicture = null;
             _isCallActive = true;
           });
-          _startProgressAnimation();
         }
         return;
 
@@ -569,7 +727,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
           _isCallActive = false;
           _isLeavingCall = false;
           _showingPreCallConfirmation = false; // Clear flag in case popup was showing
-          _userAcceptedCall = false; // Reset for next call
+          _bothUsersReady = false; // Reset for next call
+          _isReady = false; // Reset for next call
           _currentSupabaseCallId = null;
           _agoraChannelId = null;
           _matchedUserName = null;
@@ -965,7 +1124,8 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
       _isCallActive = false;
       _isLeavingCall = false;
       _showingPreCallConfirmation = false; // Clear flag when leaving call
-      _userAcceptedCall = false; // Reset for next call
+      _bothUsersReady = false; // Reset for next call
+      _isReady = false; // Reset for next call
       _currentSupabaseCallId = null;
       _agoraChannelId = null;
       _matchedUserName = null;
@@ -1414,10 +1574,10 @@ Don't try to be someone else's match, try to find yours.'''
             ),
           ),
           // Pass the Agora channel ID and call ID to JoinChannelAudio
-          // Only render when user has accepted the call
+          // Only render when BOTH users are ready (call_started_at has been set)
           Align(
             alignment: Alignment.center,
-            child: _agoraChannelId != null && _userAcceptedCall
+            child: _agoraChannelId != null && _bothUsersReady
                 ? JoinChannelAudio(
                     channelID: _agoraChannelId!,
                     callId: _currentSupabaseCallId,
@@ -1516,6 +1676,42 @@ Don't try to be someone else's match, try to find yours.'''
               ),
             ),
           ),
+          // Waiting overlay when user is ready but other user hasn't joined yet
+          if (_isReady && !_bothUsersReady)
+            Positioned.fill(
+              child: Container(
+                color: Colors.black.withOpacity(0.85),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(
+                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                      ),
+                      const SizedBox(height: 24),
+                      const Text(
+                        'Waiting for other user to join...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Audio will connect when both users are ready',
+                        style: TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );

@@ -39,6 +39,11 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
   String _callStatus = 'pending';
   int? _assignedUid; // Store the assigned UID from backend
 
+  // Track when both users are ready to start Agora
+  bool _isReady = false;
+  bool _otherUserReady = false;
+  bool _bothUsersReady = false;
+
   // Timer for call duration
   Timer? _durationTimer;
   DateTime? _callStartTime;
@@ -69,12 +74,17 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
     _assignedUid = widget.assignedUid; // Use provided UID if available
     _subscribeToCallStatus();
 
-    // If not initiator, we already accepted, so start the call immediately
+    // Mark this user as ready on the call page
+    _markUserReady();
+
+    // Set user as in call for status purposes (but not _isCallActive yet)
+    OnlineStatusService().setInCall(true);
+
+    // If not initiator, check if other user is already ready
     if (!widget.isInitiator) {
-      _startCall();
+      _checkIfOtherUserReady();
     } else {
       // For initiator, check if call is already accepted
-      // This happens when navigating from WaitingCallPage after acceptance
       _checkIfCallAlreadyAccepted();
     }
   }
@@ -104,11 +114,15 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
           _callStatus = callData['status'] ?? 'pending';
         });
 
+        // Check if other user is ready (listen for changes)
+        _checkOtherUserReadyFromData(callData);
+
         // Handle different call statuses
         switch (_callStatus) {
           case 'accepted':
             if (widget.isInitiator && previousStatus == 'pending') {
-              _startCall();
+              // Just check if other user is ready, don't start call immediately
+              _checkIfOtherUserReady();
             }
             break;
           case 'declined':
@@ -121,6 +135,98 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
         }
       },
     );
+  }
+
+  // Mark this user as ready on the database
+  Future<void> _markUserReady() async {
+    try {
+      final supabaseClient = SupabaseClient.instance.client;
+      final currentUserId = supabaseClient.auth.currentUser?.id;
+
+      if (currentUserId == null) return;
+
+      // Fetch call to determine if we're caller or called
+      final callData = await supabaseClient
+          .from('calls')
+          .select('caller_id')
+          .eq('id', widget.callId)
+          .maybeSingle();
+
+      if (callData != null) {
+        final isCaller = callData['caller_id'] == currentUserId;
+        final fieldToUpdate = isCaller ? 'caller_ready' : 'called_ready';
+
+        await supabaseClient
+            .from('calls')
+            .update({fieldToUpdate: true})
+            .eq('id', widget.callId);
+
+        setState(() {
+          _isReady = true;
+        });
+
+        print('MatchedUsersCallPage: Marked ${isCaller ? "caller" : "called"} as ready');
+
+        // Check if both users are ready now that we've marked ourselves ready
+        _checkIfBothUsersReady();
+      }
+    } catch (e) {
+      print('MatchedUsersCallPage: Error marking user ready: $e');
+    }
+  }
+
+  // Check if other user is ready from database
+  Future<void> _checkIfOtherUserReady() async {
+    try {
+      final supabaseClient = SupabaseClient.instance.client;
+      final currentUserId = supabaseClient.auth.currentUser?.id;
+
+      if (currentUserId == null) return;
+
+      final callData = await supabaseClient
+          .from('calls')
+          .select('caller_id, caller_ready, called_ready')
+          .eq('id', widget.callId)
+          .maybeSingle();
+
+      if (callData != null) {
+        _checkOtherUserReadyFromData(callData);
+      }
+    } catch (e) {
+      print('MatchedUsersCallPage: Error checking other user ready: $e');
+    }
+  }
+
+  // Check other user ready status from call data and start call if both ready
+  void _checkOtherUserReadyFromData(Map<String, dynamic> callData) {
+    final supabaseClient = SupabaseClient.instance.client;
+    final currentUserId = supabaseClient.auth.currentUser?.id;
+
+    if (currentUserId == null || callData['caller_id'] == null) return;
+
+    final isCaller = callData['caller_id'] == currentUserId;
+    final otherUserReady = isCaller
+        ? (callData['called_ready'] == true)
+        : (callData['caller_ready'] == true);
+
+    if (otherUserReady && !_otherUserReady) {
+      setState(() {
+        _otherUserReady = true;
+      });
+      print('MatchedUsersCallPage: Other user is ready!');
+      _checkIfBothUsersReady();
+    }
+  }
+
+  // Check if both users are ready and start the call timers
+  void _checkIfBothUsersReady() {
+    if (_isReady && _otherUserReady && !_bothUsersReady) {
+      setState(() {
+        _bothUsersReady = true;
+      });
+      print('MatchedUsersCallPage: BOTH USERS READY - Starting call timers');
+      _startCall();
+    }
   }
 
   Future<void> _startCall() async {
@@ -701,15 +807,16 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
               ),
             ),
 
-            // Audio component
-            Align(
-              alignment: Alignment.center,
-              child: JoinChannelAudio(
-                channelID: widget.channelName,
-                callId: widget.callId,
-                uid: _assignedUid,
+            // Audio component - only start Agora when both users ready
+            if (_bothUsersReady)
+              Align(
+                alignment: Alignment.center,
+                child: JoinChannelAudio(
+                  channelID: widget.channelName,
+                  callId: widget.callId,
+                  uid: _assignedUid,
+                ),
               ),
-            ),
 
             // Bottom section with conversation starter
             Align(
