@@ -118,7 +118,7 @@ class WelcomeScreen extends StatelessWidget {
                           decoration: TextDecoration.underline,
                         ),
                         recognizer: TapGestureRecognizer()
-                          ..onTap = () => _launchUrl(context, 'https://kalletech.com/terms-of-service/'),
+                          ..onTap = () => _launchUrl(context, 'https://koradating.com/terms-of-service/'),
                       ),
                       const TextSpan(text: ' and '),
                       TextSpan(
@@ -127,7 +127,7 @@ class WelcomeScreen extends StatelessWidget {
                           decoration: TextDecoration.underline,
                         ),
                         recognizer: TapGestureRecognizer()
-                          ..onTap = () => _launchUrl(context, 'https://kalletech.com/privacy-policy/'),
+                          ..onTap = () => _launchUrl(context, 'https://koradating.com/privacy-policy/'),
                       ),
                       const TextSpan(text: '.'),
                     ],

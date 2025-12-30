@@ -262,7 +262,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         decoration: TextDecoration.underline,
                       ),
                       recognizer: TapGestureRecognizer()
-                        ..onTap = () => _launchUrl('https://kalletech.com/terms-of-service/'),
+                        ..onTap = () => _launchUrl('https://koradating.com/terms-of-service/'),
                     ),
                     const TextSpan(text: ' and '),
                     TextSpan(
@@ -271,7 +271,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         decoration: TextDecoration.underline,
                       ),
                       recognizer: TapGestureRecognizer()
-                        ..onTap = () => _launchUrl('https://kalletech.com/privacy-policy/'),
+                        ..onTap = () => _launchUrl('https://koradating.com/privacy-policy/'),
                     ),
                     const TextSpan(text: '.'),
                   ],

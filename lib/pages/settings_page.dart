@@ -388,17 +388,17 @@ class SettingsPage extends StatelessWidget {
                 _buildSettingsTile(
                   title: 'Terms of Service',
                   icon: Icons.description_outlined,
-                  onTap: () => _launchUrl(context, 'https://kalletech.com/terms-of-service/'),
+                  onTap: () => _launchUrl(context, 'https://koradating.com/terms-of-service/'),
                 ),
                 _buildSettingsTile(
                   title: 'Privacy Policy',
                   icon: Icons.privacy_tip_outlined,
-                  onTap: () => _launchUrl(context, 'https://kalletech.com/privacy-policy/'),
+                  onTap: () => _launchUrl(context, 'https://koradating.com/privacy-policy/'),
                 ),
                 _buildSettingsTile(
                   title: 'Community Guidelines',
                   icon: Icons.people_outline,
-                  onTap: () => _launchUrl(context, 'https://kalletech.com/community-guidelines/'),
+                  onTap: () => _launchUrl(context, 'https://koradating.com/community-guidelines/'),
                 ),
                 _buildSettingsTile(
                   title: 'Contact Us',
