@@ -270,15 +270,15 @@ class _TutorialCallPageState extends State<TutorialCallPage>
       await _audioPlayer.play(AssetSource('KORA_INTRO_2.mp3'));
       await _audioPlayer.onPlayerComplete.first;
 
-      // Wait 4 seconds
-      await Future.delayed(const Duration(seconds: 4));
+      // Wait 3 seconds
+      await Future.delayed(const Duration(seconds: 3));
 
       // Play third audio file
       await _audioPlayer.play(AssetSource('KORA_INTRO_3.mp3'));
       await _audioPlayer.onPlayerComplete.first;
 
-      // Wait 4 seconds
-      await Future.delayed(const Duration(seconds: 4));
+      // Wait 3 seconds
+      await Future.delayed(const Duration(seconds: 3));
 
       // Play fourth audio file
       await _audioPlayer.play(AssetSource('KORA_INTRO_4.mp3'));
