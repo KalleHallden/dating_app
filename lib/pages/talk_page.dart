@@ -120,20 +120,20 @@ class _TalkPageState extends State<TalkPage>
                       Text(
                         'Start a conversation',
                         style: TextStyle(
-                          fontSize: 28,
+                          fontSize: 24,
                           fontWeight: FontWeight.w600,
                           color: Colors.grey[900],
                           letterSpacing: -0.5,
                         ),
                       ),
 
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 10),
 
                       Text(
                         'Connect with someone new through\nan authentic voice conversation',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 13,
                           height: 1.5,
                           color: Colors.grey[600],
                           fontWeight: FontWeight.w400,
