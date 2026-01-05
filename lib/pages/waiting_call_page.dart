@@ -8,7 +8,6 @@ import '../services/call_service.dart';
 import 'join_call_page.dart';
 import 'home_page.dart';
 import 'matched_users_call_page.dart';
-import 'call_page.dart';
 
 class WaitingCallPage extends StatefulWidget {
   final String callId;
@@ -50,17 +49,12 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     _initializeAnimations();
     _subscribeToCallStatus();
     _startTimeoutTimer();
-    
-    // If not initiator (receiving a call), and we're on this page, 
-    // it means we already accepted, so navigate to the call page
-    if (!widget.isInitiator) {
-      // Small delay to ensure everything is set up
-      Future.delayed(const Duration(milliseconds: 500), () {
-        if (mounted && !_hasNavigated) {
-          _navigateToCallPage();
-        }
-      });
-    }
+
+    // Mark this user as ready immediately when they land on the waiting page
+    _markUserReady().then((_) {
+      // After marking ready, check if call_started_at is already set
+      _checkIfBothUsersReady();
+    });
   }
 
   @override
@@ -94,24 +88,84 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     });
   }
 
+  // Mark this user as ready on the database
+  Future<void> _markUserReady() async {
+    try {
+      final currentUserId = SupabaseClient.instance.client.auth.currentUser?.id;
+      if (currentUserId == null) {
+        print('WaitingCallPage: ERROR - Current user ID is null');
+        return;
+      }
+
+      print('WaitingCallPage: Marking user ready for call ${widget.callId}, isInitiator: ${widget.isInitiator}');
+
+      // Fetch call to determine if we're caller or called
+      final callData = await SupabaseClient.instance.client
+          .from('calls')
+          .select('caller_id')
+          .eq('id', widget.callId)
+          .maybeSingle();
+
+      if (callData != null) {
+        final isCaller = callData['caller_id'] == currentUserId;
+        final fieldToUpdate = isCaller ? 'caller_ready' : 'called_ready';
+
+        print('WaitingCallPage: Updating ${fieldToUpdate} = true for call ${widget.callId}');
+
+        await SupabaseClient.instance.client
+            .from('calls')
+            .update({fieldToUpdate: true})
+            .eq('id', widget.callId);
+
+        print('WaitingCallPage: Successfully marked ${isCaller ? "caller" : "called"} as ready');
+      } else {
+        print('WaitingCallPage: ERROR - Call data is null for call ${widget.callId}');
+      }
+    } catch (e) {
+      print('WaitingCallPage: ERROR marking user ready: $e');
+    }
+  }
+
+  // Check if both users are ready by checking call_started_at
+  Future<void> _checkIfBothUsersReady() async {
+    try {
+      final callData = await SupabaseClient.instance.client
+          .from('calls')
+          .select('call_started_at')
+          .eq('id', widget.callId)
+          .maybeSingle();
+
+      if (callData != null && callData['call_started_at'] != null && !_hasNavigated) {
+        print('WaitingCallPage: call_started_at already set! Both users ready, navigating to call page');
+        _handleCallStarted();
+      }
+    } catch (e) {
+      print('WaitingCallPage: Error checking if both users ready: $e');
+    }
+  }
+
   void _subscribeToCallStatus() {
     _callStatusChannel = _callService.subscribeToCallUpdates(
       widget.callId,
       onUpdate: (callData) {
         if (!mounted || _hasNavigated) return;
-        
+
         final newStatus = callData['status'] ?? 'pending';
         print('WaitingCallPage: Call status updated to: $newStatus');
-        
+
         setState(() {
           _callStatus = newStatus;
         });
-        
+
+        // Check if call_started_at was set by the trigger (both users ready)
+        if (callData['call_started_at'] != null && !_hasNavigated) {
+          print('WaitingCallPage: call_started_at detected! Both users ready, navigating to call page');
+          _handleCallStarted();
+          return;
+        }
+
         // Handle different call statuses
         switch (_callStatus) {
-          case 'accepted':
-            _handleCallAccepted();
-            break;
           case 'declined':
             _handleCallDeclined();
             break;
@@ -124,16 +178,16 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
     );
   }
 
-  void _handleCallAccepted() {
-    print('WaitingCallPage: Call accepted, navigating to call page');
-    if (_isCallActive || _hasNavigated) return;
-    
+  void _handleCallStarted() {
+    print('WaitingCallPage: Both users ready, navigating to call page');
+    if (_hasNavigated) return;
+
     setState(() {
       _isCallActive = true;
     });
-    
+
     _timeoutTimer?.cancel();
-    
+
     // Navigate to the matched users call page
     _navigateToCallPage();
   }
@@ -206,8 +260,8 @@ class _WaitingCallPageState extends State<WaitingCallPage> with TickerProviderSt
       _hasNavigated = true;
       Navigator.pushAndRemoveUntil(
         context,
-        MaterialPageRoute(builder: (_) => const CallPage()),
-        (route) => route.settings.name == '/home',
+        MaterialPageRoute(builder: (_) => const HomePage()),
+        (route) => false, // Remove all routes
       );
     }
   }

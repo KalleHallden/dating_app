@@ -39,9 +39,7 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
   String _callStatus = 'pending';
   int? _assignedUid; // Store the assigned UID from backend
 
-  // Track when both users are ready to start Agora
-  bool _isReady = false;
-  bool _otherUserReady = false;
+  // Track when both users are ready to start Agora (via call_started_at trigger)
   bool _bothUsersReady = false;
 
   // Timer for call duration
@@ -80,11 +78,8 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
     // Set user as in call for status purposes (but not _isCallActive yet)
     OnlineStatusService().setInCall(true);
 
-    // If not initiator, check if other user is already ready
-    if (!widget.isInitiator) {
-      _checkIfOtherUserReady();
-    } else {
-      // For initiator, check if call is already accepted
+    // Check if call is already accepted (for initiator)
+    if (widget.isInitiator) {
       _checkIfCallAlreadyAccepted();
     }
   }
@@ -114,15 +109,21 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
           _callStatus = callData['status'] ?? 'pending';
         });
 
-        // Check if other user is ready (listen for changes)
-        _checkOtherUserReadyFromData(callData);
+        // Check if call_started_at was set by the trigger (both users ready)
+        if (callData['call_started_at'] != null && !_bothUsersReady) {
+          print('MatchedUsersCallPage: call_started_at detected! Both users ready, starting call');
+          setState(() {
+            _bothUsersReady = true;
+          });
+          _startCall();
+        }
 
         // Handle different call statuses
         switch (_callStatus) {
           case 'accepted':
             if (widget.isInitiator && previousStatus == 'pending') {
-              // Just check if other user is ready, don't start call immediately
-              _checkIfOtherUserReady();
+              // Call was accepted, mark ourselves as ready
+              // The trigger will fire when both users are ready
             }
             break;
           case 'declined':
@@ -161,13 +162,9 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
             .update({fieldToUpdate: true})
             .eq('id', widget.callId);
 
-        setState(() {
-          _isReady = true;
-        });
-
         print('MatchedUsersCallPage: Marked ${isCaller ? "caller" : "called"} as ready');
 
-        // Check if both users are ready now that we've marked ourselves ready
+        // Check if both users are ready now (if call_started_at is already set)
         _checkIfBothUsersReady();
       }
     } catch (e) {
@@ -175,57 +172,27 @@ class _MatchedUsersCallPageState extends State<MatchedUsersCallPage>
     }
   }
 
-  // Check if other user is ready from database
-  Future<void> _checkIfOtherUserReady() async {
+  // Check if both users are ready by checking call_started_at from database
+  Future<void> _checkIfBothUsersReady() async {
     try {
       final supabaseClient = SupabaseClient.instance.client;
-      final currentUserId = supabaseClient.auth.currentUser?.id;
-
-      if (currentUserId == null) return;
 
       final callData = await supabaseClient
           .from('calls')
-          .select('caller_id, caller_ready, called_ready')
+          .select('call_started_at')
           .eq('id', widget.callId)
           .maybeSingle();
 
-      if (callData != null) {
-        _checkOtherUserReadyFromData(callData);
+      // If call_started_at is set, the trigger has fired meaning both users are ready
+      if (callData != null && callData['call_started_at'] != null && !_bothUsersReady) {
+        print('MatchedUsersCallPage: call_started_at already set! Both users ready, starting call');
+        setState(() {
+          _bothUsersReady = true;
+        });
+        _startCall();
       }
     } catch (e) {
-      print('MatchedUsersCallPage: Error checking other user ready: $e');
-    }
-  }
-
-  // Check other user ready status from call data and start call if both ready
-  void _checkOtherUserReadyFromData(Map<String, dynamic> callData) {
-    final supabaseClient = SupabaseClient.instance.client;
-    final currentUserId = supabaseClient.auth.currentUser?.id;
-
-    if (currentUserId == null || callData['caller_id'] == null) return;
-
-    final isCaller = callData['caller_id'] == currentUserId;
-    final otherUserReady = isCaller
-        ? (callData['called_ready'] == true)
-        : (callData['caller_ready'] == true);
-
-    if (otherUserReady && !_otherUserReady) {
-      setState(() {
-        _otherUserReady = true;
-      });
-      print('MatchedUsersCallPage: Other user is ready!');
-      _checkIfBothUsersReady();
-    }
-  }
-
-  // Check if both users are ready and start the call timers
-  void _checkIfBothUsersReady() {
-    if (_isReady && _otherUserReady && !_bothUsersReady) {
-      setState(() {
-        _bothUsersReady = true;
-      });
-      print('MatchedUsersCallPage: BOTH USERS READY - Starting call timers');
-      _startCall();
+      print('MatchedUsersCallPage: Error checking if both users ready: $e');
     }
   }
 

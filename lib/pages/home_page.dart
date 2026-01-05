@@ -4,6 +4,7 @@ import 'talk_page.dart';
 import 'matches_page.dart';
 import 'profile_page.dart';
 import 'settings_page.dart';
+import '../services/tutorial_service.dart';
 
 class HomePage extends StatefulWidget {
 	final int initialIndex;
@@ -26,9 +27,11 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _checkTutorialStatus() async {
-    // Temporarily always show tutorial for testing
+    final tutorialService = TutorialService();
+    final hasCompleted = await tutorialService.hasCompletedTutorial();
+
     setState(() {
-      _showTutorial = true;
+      _showTutorial = !hasCompleted; // Only show if NOT completed
       _pages = [
         TalkPage(showTutorial: _showTutorial),
         MatchesPage(),

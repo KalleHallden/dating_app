@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/account_deletion_service.dart';
 import '../services/supabase_client.dart';
+import '../services/tutorial_service.dart';
 import 'welcome_screen.dart';
 import 'contact_form_page.dart';
 import 'blocked_users_page.dart';
+import 'home_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({Key? key}) : super(key: key);
@@ -60,6 +62,21 @@ class SettingsPage extends StatelessWidget {
           );
         }
       }
+    }
+  }
+
+  Future<void> _handleWatchTutorial(BuildContext context) async {
+    final tutorialService = TutorialService();
+    await tutorialService.resetTutorial();
+
+    if (context.mounted) {
+      // Navigate to home page with Talk tab selected (index 0) and force rebuild
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => const HomePage(initialIndex: 0),
+        ),
+        (route) => false, // Remove all previous routes
+      );
     }
   }
 
@@ -442,6 +459,14 @@ class SettingsPage extends StatelessWidget {
             color: Colors.white,
             child: Column(
               children: [
+                _buildSettingsTile(
+                  title: 'Watch Tutorial',
+                  icon: Icons.school_outlined,
+                  onTap: () => _handleWatchTutorial(context),
+                  showChevron: false,
+                  textColor: Colors.black87,
+                  iconColor: Colors.grey[700],
+                ),
                 _buildSettingsTile(
                   title: 'Sign Out',
                   icon: Icons.logout,

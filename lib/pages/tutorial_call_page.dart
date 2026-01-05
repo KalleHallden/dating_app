@@ -1,9 +1,14 @@
 // lib/pages/tutorial_call_page.dart
 import 'dart:async';
 import 'dart:ui';
+import 'dart:io';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:record/record.dart';
 import '../services/tutorial_manager.dart';
 import '../widgets/tutorial_spotlight.dart';
+import 'waveform.dart';
 
 class TutorialCallPage extends StatefulWidget {
   const TutorialCallPage({super.key});
@@ -40,6 +45,23 @@ class _TutorialCallPageState extends State<TutorialCallPage>
     "travel to the mountains or the beach?",
   ];
 
+  // Voice animation waveform data
+  List<double> _spectrumData = List.generate(13, (index) => 0.0);
+  Timer? _waveformTimer;
+  bool _shouldUpdateWaveform = true;
+
+  // Audio player for tutorial voice
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlayingAudio = false;
+
+  // Microphone recorder for real audio input
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecordingMic = false;
+  String? _recordingPath;
+
+  // Like button state
+  bool _isLiked = false;
+
   @override
   void initState() {
     super.initState();
@@ -70,6 +92,10 @@ class _TutorialCallPageState extends State<TutorialCallPage>
   void dispose() {
     _progressController.dispose();
     _callTimer?.cancel();
+    _waveformTimer?.cancel();
+    _stopMicrophoneMonitoring();
+    _audioRecorder.dispose();
+    _audioPlayer.dispose();
     TutorialManager().removeListener(_handleTutorialStateChange);
     super.dispose();
   }
@@ -93,6 +119,182 @@ class _TutorialCallPageState extends State<TutorialCallPage>
     return '$minutes:${secs.toString().padLeft(2, '0')}';
   }
 
+  Future<void> _startMicrophoneMonitoring() async {
+    if (_isRecordingMic) {
+      print('Tutorial: Mic already recording, skipping');
+      return;
+    }
+
+    print('Tutorial: Starting microphone monitoring...');
+
+    try {
+      // Check and request microphone permission
+      final hasPermission = await _audioRecorder.hasPermission();
+      print('Tutorial: Microphone permission: $hasPermission');
+
+      if (hasPermission) {
+        // Start recording to monitor microphone input
+        // We provide a temporary path - the file will be discarded
+        final tempDir = Directory.systemTemp;
+        _recordingPath = '${tempDir.path}/tutorial_mic_${DateTime.now().millisecondsSinceEpoch}.m4a';
+
+        await _audioRecorder.start(
+          const RecordConfig(encoder: AudioEncoder.aacLc),
+          path: _recordingPath!,
+        );
+
+        _isRecordingMic = true;
+        print('Tutorial: Microphone recording started at: $_recordingPath');
+
+        // Monitor amplitude levels from microphone
+        _waveformTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+          if (!_isRecordingMic || !mounted) return;
+
+          // Toggle update flag to skip every other update (like real call)
+          if (!_shouldUpdateWaveform) {
+            _shouldUpdateWaveform = true;
+            return;
+          }
+          _shouldUpdateWaveform = false;
+
+          try {
+            final amplitude = await _audioRecorder.getAmplitude();
+            print('Tutorial: Amplitude: ${amplitude.current} dB, max: ${amplitude.max}');
+
+            // Adjusted audio levels based on actual measurements:
+            // -45dB or lower = silence/background noise (your actual silent level is ~-48 to -50dB)
+            // -35dB = very quiet speech
+            // -20dB = normal speech
+            // -10dB = loud speech
+            // 0dB = very loud/clipping
+
+            // Map -45dB to 0.0 and -10dB to 1.0 for realistic range
+            final double silenceThreshold = -45.0;
+            final double loudThreshold = -10.0;
+            final normalizedValue = ((amplitude.current - silenceThreshold) / (loudThreshold - silenceThreshold)).clamp(0.0, 1.0);
+            print('Tutorial: Normalized value: $normalizedValue');
+
+            if (normalizedValue > 0.1) {
+              // Only show waveform if above 10% (actual sound detected)
+              setState(() {
+                // Generate spectrum data exactly like AgoraService does
+                final random = math.Random();
+                _spectrumData = List.generate(13, (index) {
+                  double barValue;
+
+                  if (normalizedValue < 0.1) {
+                    // Very quiet - minimal activity
+                    barValue = random.nextDouble() * 0.1;
+                  } else {
+                    // Lower frequency bands (bass) tend to be stronger
+                    final frequencyWeight = index < 4 ? 1.0 : (index < 8 ? 0.8 : 0.6);
+                    final baseValue = normalizedValue * frequencyWeight;
+
+                    // Add randomness for natural variation (±30%)
+                    final randomFactor = 0.7 + (random.nextDouble() * 0.6);
+                    barValue = (baseValue * randomFactor).clamp(0.0, 1.0);
+
+                    // Add some occasional peaks for visual interest
+                    if (random.nextDouble() < 0.2) {
+                      barValue = math.min(barValue * 1.5, 1.0);
+                    }
+                  }
+
+                  return barValue;
+                });
+              });
+              print('Tutorial: Updated spectrum data: $_spectrumData');
+            } else {
+              // Silence - set all bars to zero
+              setState(() {
+                _spectrumData = List.generate(13, (index) => 0.0);
+              });
+            }
+          } catch (e) {
+            print('Tutorial: Error getting amplitude: $e');
+          }
+        });
+      } else {
+        print('Tutorial: No microphone permission!');
+      }
+    } catch (e) {
+      print('Tutorial: Error starting microphone monitoring: $e');
+    }
+  }
+
+  Future<void> _stopMicrophoneMonitoring() async {
+    if (!_isRecordingMic) return;
+
+    _waveformTimer?.cancel();
+    _isRecordingMic = false;
+
+    try {
+      await _audioRecorder.stop();
+
+      // Delete the temporary recording file
+      if (_recordingPath != null) {
+        final file = File(_recordingPath!);
+        if (await file.exists()) {
+          await file.delete();
+          print('Tutorial: Deleted temp recording file');
+        }
+        _recordingPath = null;
+      }
+    } catch (e) {
+      print('Tutorial: Error stopping microphone: $e');
+    }
+
+    if (mounted) {
+      setState(() {
+        _spectrumData = List.generate(13, (index) => 0.0);
+      });
+    }
+  }
+
+  Future<void> _playTutorialAudio() async {
+    if (_isPlayingAudio) return;
+
+    setState(() {
+      _isPlayingAudio = true;
+    });
+
+    try {
+      // Play first audio file
+      await _audioPlayer.play(AssetSource('KORA_INTRO_1.mp3'));
+      await _audioPlayer.onPlayerComplete.first;
+
+      // Wait 8 seconds
+      await Future.delayed(const Duration(seconds: 8));
+
+      // Play second audio file
+      await _audioPlayer.play(AssetSource('KORA_INTRO_2.mp3'));
+      await _audioPlayer.onPlayerComplete.first;
+
+      // Wait 4 seconds
+      await Future.delayed(const Duration(seconds: 4));
+
+      // Play third audio file
+      await _audioPlayer.play(AssetSource('KORA_INTRO_3.mp3'));
+      await _audioPlayer.onPlayerComplete.first;
+
+      // Wait 4 seconds
+      await Future.delayed(const Duration(seconds: 4));
+
+      // Play fourth audio file
+      await _audioPlayer.play(AssetSource('KORA_INTRO_4.mp3'));
+      await _audioPlayer.onPlayerComplete.first;
+
+      setState(() {
+        _isPlayingAudio = false;
+      });
+    } catch (e) {
+      print('Error playing tutorial audio: $e');
+      setState(() {
+        _isPlayingAudio = false;
+      });
+    }
+  }
+
   void _handleTutorialStateChange() {
     if (!mounted) return;
 
@@ -106,6 +308,7 @@ class _TutorialCallPageState extends State<TutorialCallPage>
       });
       _progressController.forward();
       _startCallTimer(); // Start the 5-minute countdown timer
+      _startMicrophoneMonitoring(); // Start monitoring microphone for real waveform
 
       // Show next tutorial after delay
       Future.delayed(const Duration(milliseconds: 2500), () {
@@ -231,16 +434,24 @@ Don't try to be someone else's match, try to find yours.''',
                     );
                   },
                 ),
-                // Blur overlay
+                // Blur overlay that decreases as progress bar fills
                 Positioned.fill(
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: 20.0,
-                      sigmaY: 20.0,
-                    ),
-                    child: Container(
-                      color: Colors.black.withValues(alpha: 0.4),
-                    ),
+                  child: AnimatedBuilder(
+                    animation: _progressAnimation,
+                    builder: (context, child) {
+                      // Calculate blur amount: starts at 20.0, ends at 0.0
+                      final blurAmount = 20.0 * (1.0 - _progressAnimation.value);
+
+                      return BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: blurAmount,
+                          sigmaY: blurAmount,
+                        ),
+                        child: Container(
+                          color: Colors.black.withValues(alpha: 0.4 * (1.0 - _progressAnimation.value)),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ],
@@ -291,7 +502,10 @@ Don't try to be someone else's match, try to find yours.''',
                   children: [
                     ElevatedButton(
                       key: _leaveButtonKey,
-                      onPressed: () {},
+                      onPressed: () {
+                        TutorialManager().skipTutorial();
+                        Navigator.pop(context);
+                      },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.red,
                       ),
@@ -338,6 +552,23 @@ Don't try to be someone else's match, try to find yours.''',
             ),
           ),
 
+          // Voice animation waveform in center
+          Align(
+            alignment: Alignment.center,
+            child: Container(
+              width: 200,
+              height: 200,
+              decoration: const BoxDecoration(
+                color: Colors.transparent,
+                shape: BoxShape.circle,
+              ),
+              child: CustomPaint(
+                key: ValueKey(_spectrumData.hashCode),
+                painter: WaveformWidget(_spectrumData),
+              ),
+            ),
+          ),
+
           // Bottom section with buttons and progress
           Align(
             alignment: Alignment.bottomCenter,
@@ -370,9 +601,16 @@ Don't try to be someone else's match, try to find yours.''',
                             ],
                           ),
                           child: IconButton(
-                            icon: const Icon(Icons.favorite_border, size: 28),
+                            icon: Icon(
+                              _isLiked ? Icons.favorite : Icons.favorite_border,
+                              size: 28,
+                            ),
                             color: Colors.green,
-                            onPressed: () {},
+                            onPressed: () {
+                              setState(() {
+                                _isLiked = !_isLiked;
+                              });
+                            },
                           ),
                         ),
                         // Next button (fast_forward icon, red color to match real UI)
@@ -610,9 +848,21 @@ Don't try to be someone else's match, try to find yours.''',
                   'Use this menu to block or report users if needed. We take safety seriously!',
               currentStep: 9,
               totalSteps: 9,
-              onNext: () {
-                TutorialManager().nextStep(); // This will complete and go back
-                Navigator.pop(context);
+              onNext: () async {
+                TutorialManager().nextStep(); // This will complete the tutorial
+
+                // Hide the tutorial overlay to show the voice animation
+                setState(() {
+                  _showTutorialOverlay = false;
+                });
+
+                // Play the tutorial audio with voice animation
+                await _playTutorialAudio();
+
+                // Navigate back after audio completes
+                if (mounted) {
+                  Navigator.pop(context);
+                }
               },
               onSkip: () {
                 TutorialManager().skipTutorial();
