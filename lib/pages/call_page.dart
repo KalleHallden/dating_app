@@ -336,6 +336,16 @@ class _CallPageState extends State<CallPage> with TickerProviderStateMixin {
 
   // Handle call updates from realtime subscription
   void _handleCallUpdate(Map<String, dynamic> callData) {
+    // Check if call status is "ended" - other user left
+    if (callData['status'] == 'ended') {
+      safePrint('CallPage: Call status is ended - other user left the call');
+      // Only leave if we're not already in the process of leaving
+      if (mounted && !_isLeavingCall) {
+        _leaveCall(shouldReturnHome: true, reason: 'partner_left');
+      }
+      return;
+    }
+
     // Check if call_started_at was just set (trigger fired)
     if (callData['call_started_at'] != null && !_bothUsersReady) {
       safePrint('CallPage: call_started_at detected! Both users ready, starting Agora');
